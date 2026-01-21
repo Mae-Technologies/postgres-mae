@@ -152,7 +152,7 @@ BEGIN
             CREATE TRIGGER %I
                 BEFORE INSERT OR UPDATE ON %I
                 FOR EACH ROW
-                EXECUTE FUNCTION app.audit_enforce_timestamps_and_immutables ( );
+                EXECUTE FUNCTION mae._audit_enforce_timestamps_and_immutables ( );
 END IF;
 END $do$;
     $fmt$,
@@ -203,7 +203,7 @@ END $do$;
                     CREATE TRIGGER %I
                         BEFORE UPDATE ON %I
                         FOR EACH ROW
-                        EXECUTE FUNCTION app.enforce_immutable_columns ( );
+                        EXECUTE FUNCTION mae._enforce_immutable_columns ( );
         END IF;
     END $do$;
         $fmt$,

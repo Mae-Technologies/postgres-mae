@@ -114,7 +114,6 @@ _env_vars=(
   TABLE_PROVISIONER_USER
   TABLE_PROVISIONER_PWD
 
-  SEARCH_PATH
 )
 
 for v in "${_env_vars[@]}"; do
@@ -305,6 +304,14 @@ log_ok "Premigration script finished"
 # -----------------------------------------------------------------------------
 # pgTAP: run the suite as multiple principals (stop on first failure)
 # -----------------------------------------------------------------------------
+log_info "adding PGTap Extention..."
+PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+  -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
+-- cannot drop the extension for public -> superuser requires it to run tests
+DROP EXTENSION IF EXISTS pgtap;
+CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA test;
+"
+log_ok "PGTap Extention added"
 
 run_pgtap_as() {
   local label="$1"
@@ -312,25 +319,19 @@ run_pgtap_as() {
   local pwd="$3"
   local dir="$4"
 
-  if [[ "${label}" == "app_owner" ]]; then
+  # if [[ "${label}" == "app_owner" ]]; then
 
-    PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
-      -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
--- cannot drop the extension for public -> superuser requires it to run tests
-DROP EXTENSION IF EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pgtap;
-" \
-      1>/dev/null
+  #     PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+  #       -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
+  # -- cannot drop the extension for public -> superuser requires it to run tests
+  # DROP EXTENSION IF EXISTS pgtap;
+  # CREATE EXTENSION IF NOT EXISTS pgtap;
+  # " \
+  #       1>/dev/null
 
-  else
-    PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
-      -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
--- cannot drop the extension for public -> superuser requires it to run tests
-DROP EXTENSION IF EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA app;
-" \
-      1>/dev/null
-  fi
+  # FIXME: 'with schema app needs to move to test schema'
+  # else
+  # fi
 
   log_info "Running pgTAP as ${label} (${user})"
 
@@ -359,19 +360,19 @@ set +e
 for role_label in "SUPERUSER" "MIGRATOR_USER" "TABLE_PROVISIONER_USER" "APP_USER"; do
   case "${role_label}" in
   SUPERUSER)
-    run_pgtap_as "app_owner" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests"
+    run_pgtap_as "admin" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests"
     rc=$?
     ;;
   MIGRATOR_USER)
-    run_pgtap_as "migrator" "${MIGRATOR_USER}" "${MIGRATOR_PWD}" "/workspace/tests/app_migrator_table_creator"
+    run_pgtap_as "app_migrator" "${MIGRATOR_USER}" "${MIGRATOR_PWD}" "/workspace/tests/app_migrator_table_creator"
     rc=$?
     ;;
   APP_USER)
-    run_pgtap_as "app" "${APP_USER}" "${APP_USER_PWD}" "/workspace/tests/app_user"
+    run_pgtap_as "app_user" "${APP_USER}" "${APP_USER_PWD}" "/workspace/tests/app_user"
     rc=$?
     ;;
   TABLE_PROVISIONER_USER)
-    run_pgtap_as "table_provisioner" "${TABLE_PROVISIONER_USER}" "${TABLE_PROVISIONER_PWD}" "/workspace/tests/app_migrator_table_creator"
+    run_pgtap_as "table_creator" "${TABLE_PROVISIONER_USER}" "${TABLE_PROVISIONER_PWD}" "/workspace/tests/app_migrator_table_creator"
     rc=$?
     ;;
   *)

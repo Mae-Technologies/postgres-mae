@@ -1,5 +1,5 @@
 -- We dont want to drop this one first, we want to try a replacement as app data_definitions rely on it
-CREATE OR REPLACE FUNCTION app.enforce_immutable_columns ()
+CREATE OR REPLACE FUNCTION mae._enforce_immutable_columns ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
     SECURITY DEFINER

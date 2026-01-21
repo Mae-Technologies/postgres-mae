@@ -24,17 +24,33 @@ trap_run() {
   PGPASSWORD="${SUPERUSER_PWD}" psql \
     -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
     -d postgres -v ON_ERROR_STOP=1 \
-    --set=app_db_name="${APP_DB_NAME}" \
+    --set=app_db_name="${APP_DB_NAME}" --set=test_db_name="test" \
     >/dev/null 2>&1 <<'SQL'
 REVOKE CONNECT ON DATABASE :"app_db_name" FROM PUBLIC;
+REVOKE CONNECT ON DATABASE :"test_db_name" FROM PUBLIC;
+REVOKE CONNECT ON DATABASE :"mae_db_name" FROM PUBLIC;
+
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = :'mae_db_name'
+  AND pid <> pg_backend_pid();
 
 SELECT pg_terminate_backend(pid)
 FROM pg_stat_activity
 WHERE datname = :'app_db_name'
   AND pid <> pg_backend_pid();
 
-DROP DATABASE IF EXISTS :"app_db_name";
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = :'test_db_name'
+  AND pid <> pg_backend_pid();
+
+DROP DATABASE IF EXISTS :"app_db_name" CASCADE;
+DROP DATABASE IF EXISTS :"test_db_name" CASCADE;
+DROP DATABASE IF EXISTS :"mae_db_name" CASCADE;
 CREATE DATABASE :"app_db_name";
+CREATE DATABASE :"test_db_name";
+CREATE DATABASE :"mae_db_name";
 SQL
 
   stop_postgres_bounded

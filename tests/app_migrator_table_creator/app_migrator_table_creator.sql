@@ -73,7 +73,8 @@ SELECT
     *
 FROM
     app.test_ddl_policies ();
-ROLLBACK;
+-- FIXME: This needs to be reverted back to ROLLBACK;
+COMMIT;
 
 DROP FUNCTION app.test_ddl_policies ();
 

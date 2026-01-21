@@ -174,18 +174,43 @@ psql_super_db() {
 # 1) Ensure DB exists (as SUPERUSER)
 # -----------------------------------------------------------------------------
 log_info "Ensuring database exists via sqlx (superuser)"
-sqlx database create
+sqlx database create --database-url "${DATABASE_URL}"
+
 log_ok "Database ensured"
 
 # Dropping sqlx table
 #
+# WARN: cannot drop any other migration tables as they're not ours! the public ones can be reapplied without error - and SHOULD be reapplied
 psql_super_db "${APP_DB_NAME}" "
-DROP TABLE IF EXISTS public._sqlx_migrations;
+DROP TABLE IF EXISTS mae._sqlx_migrations;
+"
+
+# Create mae schema for sqlx migrations
+
+psql_super_db "${APP_DB_NAME}" "
+
+DO \$\$
+BEGIN
+    IF NOT EXISTS (
+        SELECT
+            1
+        FROM
+            pg_roles
+        WHERE
+            rolname = 'app_owner') THEN
+    CREATE ROLE app_owner NOLOGIN;
+END IF;
+    -- Create schema owned by app_owner
+    CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION app_owner;
+    CREATE SCHEMA IF NOT EXISTS mae AUTHORIZATION app_owner;
+    CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION app_owner;
+END
+\$\$;
 "
 
 # setting role
 #
-psql_super_db "${APP_DB_NAME}"
+# psql_super_db "${APP_DB_NAME}"
 
 # -----------------------------------------------------------------------------
 # 2) Create LOGIN roles (as SUPERUSER) - these are actual DB users
@@ -216,7 +241,7 @@ log_ok "LOGIN roles ensured"
 # This is where 01-05 live now (roles/functions/lockdowns).
 log_info "Running admin migrations"
 if [[ "${DEBUG:-}" == "1" ]]; then
-  sqlx migrate run
+  sqlx migrate run --database-url "${DATABASE_URL}?options=-csearch_path%3Dmae"
 else
   sqlx migrate run >/dev/null
 fi
@@ -340,12 +365,13 @@ log_ok "Memberships granted"
 # -----------------------------------------------------------------------------
 # 6) Set scopes / search_path to roles
 # -----------------------------------------------------------------------------
-log_info "Setting search_path / scope to roles"
+log_info "Setting search_path / scope to roles ${SEARCH_PATH}"
 psql_super_db "${APP_DB_NAME}" "
   -- Set search_path
-  ALTER ROLE ${MIGRATOR_USER} SET search_path = ${SEARCH_PATH};
-  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = ${SEARCH_PATH};
-  ALTER ROLE ${APP_USER} SET search_path = ${SEARCH_PATH};
+ALTER ROLE ${SUPERUSER} SET search_path = test, ${SEARCH_PATH}, mae, public;
+  ALTER ROLE ${MIGRATOR_USER} SET search_path = test, ${SEARCH_PATH};
+  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = test, ${SEARCH_PATH};
+  ALTER ROLE ${APP_USER} SET search_path = test, ${SEARCH_PATH};
 "
 log_ok "Search_path's set"
 

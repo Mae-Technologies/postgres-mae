@@ -68,7 +68,8 @@ CREATE FUNCTION app.add_column_from_spec (p_spec jsonb)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
-    SET search_path = app
+    -- WARN: I dont think I need this here
+    -- SET search_path = app
     AS $$
 DECLARE
     v_table_name text;
@@ -151,7 +152,7 @@ BEGIN
         EXECUTE v_sql;
         -- Update ACL/policy: by default, new spec column is insertable+updatable.
         PERFORM
-            app.apply_table_acl (v_table_name, ARRAY[c_name], ARRAY[c_name]);
+            mae._apply_table_acl (v_table_name, ARRAY[c_name], ARRAY[c_name]);
 END;
 $$;
 

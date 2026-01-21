@@ -2,9 +2,9 @@
 -- Install this in the "admin up-to-05" phase (superuser/admin connection).
 DROP EVENT TRIGGER IF EXISTS trg_block_disallowed_ddl;
 
-DROP FUNCTION IF EXISTS app.block_disallowed_ddl ();
+DROP FUNCTION IF EXISTS mae._block_disallowed_ddl ();
 
-CREATE FUNCTION app.block_disallowed_ddl ()
+CREATE FUNCTION mae._block_disallowed_ddl ()
     RETURNS event_trigger
     LANGUAGE plpgsql
     AS $$
@@ -77,5 +77,5 @@ END;
 $$;
 
 CREATE EVENT TRIGGER trg_block_disallowed_ddl ON ddl_command_end
-    EXECUTE FUNCTION app.block_disallowed_ddl ();
+    EXECUTE FUNCTION mae._block_disallowed_ddl ();
 
