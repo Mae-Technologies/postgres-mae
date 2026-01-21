@@ -1,0 +1,86 @@
+-- Blocks table/sequence creation unless the executing role is allowed.
+-- Install this in the "admin up-to-05" phase (superuser/admin connection).
+
+CREATE OR REPLACE FUNCTION app.block_disallowed_ddl()
+RETURNS event_trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  effective_role text := current_user;   -- definer/effective
+  invoker_role   text := session_user;   -- original login
+  q text := current_query();
+  protected_cols text[] := ARRAY[
+    'id','sys_client','created_at','created_by','updated_at','updated_by','status','sys_detail','tags'
+  ];
+  col text;
+BEGIN
+
+  -- Allow if the effective role is privileged (SECURITY DEFINER => app_owner)
+  IF effective_role IN ('app_owner', 'postgres') THEN
+    RETURN;
+  END IF;
+
+-- Allow SQLx bookkeeping DDL for migrator role membership (robust: uses object identity)
+IF 
+   pg_has_role(invoker_role, 'app_migrator', 'member')
+   AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
+   AND EXISTS (
+     SELECT 1
+     FROM pg_event_trigger_ddl_commands() c
+     WHERE
+       -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
+       c.object_identity IN ('public._sqlx_migrations', '_sqlx_migrations')
+       OR c.object_identity LIKE '%._sqlx_migrations'
+   )
+THEN
+  RETURN;
+END IF;
+
+  -- Block direct CREATE/DROP for non-privileged effective roles
+  IF TG_TAG IN (
+    'CREATE TABLE',
+    'CREATE TABLE AS',
+    'SELECT INTO',
+    'CREATE SEQUENCE',
+    'DROP TABLE',
+    'DROP SEQUENCE'
+  ) THEN
+    RAISE EXCEPTION
+      'DDL "%": not allowed for role "%". query: "%". Use create_table_from_spec/apply_table_acl.',
+      TG_TAG, invoker_role, q;
+  END IF;
+
+  -- Handle ALTER TABLE separately
+  IF TG_TAG = 'ALTER TABLE' THEN
+    -- Optional: if you only care about app schema, gate on object identity instead of regex.
+    -- If you keep the regex, do the protected column checks BEFORE raising.
+
+    IF q ~* '\malter\s+table\s+app\.' THEN
+      -- protected column checks here (drop/rename)
+    FOREACH col IN ARRAY protected_cols LOOP
+      IF q ~* format('\mdrop\s+column\s+(if\s+exists\s+)?%I\b', col) THEN
+        RAISE EXCEPTION 'DDL blocked: cannot DROP protected column "%" on app tables', col;
+      END IF;
+    END LOOP;
+
+    FOREACH col IN ARRAY protected_cols LOOP
+      IF q ~* format('\mrename\s+column\s+%I\s+to\b', col) THEN
+        RAISE EXCEPTION 'DDL blocked: cannot RENAME protected column "%" on app tables', col;
+      END IF;
+    END LOOP;
+      END IF;
+
+    -- Then block any ALTER TABLE regardless (since you want DDL via elevated functions)
+    RAISE EXCEPTION
+      'DDL "%": not allowed for role "%". query: "%". Use elevated functions.',
+      TG_TAG, invoker_role, q;
+  END IF;
+
+END;
+$$;
+
+DROP EVENT TRIGGER IF EXISTS trg_block_disallowed_ddl;
+
+CREATE EVENT TRIGGER trg_block_disallowed_ddl
+ON ddl_command_end
+EXECUTE FUNCTION app.block_disallowed_ddl();
