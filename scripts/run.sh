@@ -164,21 +164,6 @@ fi
 # In non-test env, we aim to keep postgres running and never exit.
 should_exit=0
 
-# sane defaults for container mode
-export DB_HOST="${DB_HOST:-127.0.0.1}"
-
-# Start postgres locally (same container)
-: "${SUPERUSER:?SUPERUSER required (from .env)}"
-: "${SUPERUSER_PWD:?SUPERUSER_PWD required (from .env)}"
-
-# Use DB_PORT_OVERRIDE if set, else DB_PORT from env
-if [[ -n "${DB_PORT_OVERRIDE:-}" ]]; then
-  DB_PORT="${DB_PORT_OVERRIDE}"
-  export DB_PORT
-  log_warn "DB_PORT overridden to ${DB_PORT}"
-fi
-: "${DB_PORT:?DB_PORT required (from .env or DB_PORT_OVERRIDE)}"
-
 export POSTGRES_USER="${SUPERUSER}"
 export POSTGRES_PASSWORD="${SUPERUSER_PWD}"
 

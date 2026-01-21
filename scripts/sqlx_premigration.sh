@@ -48,7 +48,6 @@ c_yellow="\033[33m"
 c_red="\033[31m"
 
 log_info() {
-  is_tty || return 0
   is_debug || return 0
   echo -e "${c_blue}🧩  $*${c_reset}"
 }
