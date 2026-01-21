@@ -7,11 +7,11 @@
 --   - UPDATE: id, sys_client, created_at, created_by are immutable (cannot change).
 -- WARN: we don't want to drop then create, internal app data_definitions rely on it, see impl in create_table_acl function
 --
-CREATE FUNCTION IF NOT EXSISTS FUNCTION app.audit_enforce_timestamps_and_immutables ()
-        RETURNS TRIGGER
-        LANGUAGE plpgsql
-        SECURITY DEFINER
-        AS $$
+CREATE OR REPLACE FUNCTION app.audit_enforce_timestamps_and_immutables ()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Always stamp updated_at at insert time (created_at already has a DEFAULT).
