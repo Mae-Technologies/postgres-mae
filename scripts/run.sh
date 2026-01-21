@@ -14,8 +14,6 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 is_debug() { [[ "${DEBUG:-}" == "1" ]]; }
 
-is_tty() { [[ "${TTY_OVERRIDE:-}" == "1" ]] || [[ -t 1 ]]; }
-
 # -----------------------------------------------------------------------------
 # Logging helpers (emoji + two spaces, TTY-only)
 # -----------------------------------------------------------------------------
@@ -26,31 +24,24 @@ c_yellow="\033[33m"
 c_red="\033[31m"
 
 log() {
-  is_tty || return 0
-  is_debug || return 0
-  echo -e "$*"
+  echo -e "${c_blue}$*${c_reset}"
 }
 
 log_info() {
-  is_tty || return 0
   is_debug || return 0
   echo -e "${c_blue}🧩  $*${c_reset}"
 }
 
 log_ok() {
-  is_tty || return 0
   echo -e "${c_green}✅  $*${c_reset}"
 }
 
 log_warn() {
-  is_tty || return 0
-  is_debug || return 0
   echo -e "${c_yellow}⚠️  $*${c_reset}"
 }
 
 log_err() {
-  [[ -t 2 ]] || return 0
-  echo -e "${c_red}❌  $*${c_reset}" >&2
+  echo -e "${c_red} ❌ $*${c_reset}" >&2
 }
 
 cd /workspace
@@ -113,6 +104,17 @@ _env_vars=(
 
   SUPERUSER
   SUPERUSER_PWD
+
+  MIGRATOR_USER
+  MIGRATOR_PWD
+
+  APP_USER
+  APP_USER_PWD
+
+  TABLE_PROVISIONER_USER
+  TABLE_PROVISIONER_PWD
+
+  SEARCH_PATH
 )
 
 for v in "${_env_vars[@]}"; do
@@ -302,69 +304,118 @@ fi
 log_ok "Premigration script finished"
 
 # -----------------------------------------------------------------------------
-# Run pgTAP tests via pg_prove (stdout/stderr passthrough)
+# pgTAP: run the suite as multiple principals (stop on first failure)
 # -----------------------------------------------------------------------------
-log "________________________________________"
-log ""
-log_info "Running pgTAP tests via pg_prove"
-log ""
-log "________________________________________"
 
-# Ensure pgTAP extension exists (quiet on success)
 PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
-  -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q \
-  -c "CREATE EXTENSION IF NOT EXISTS pgtap;" \
+  -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
+DROP EXTENSION IF EXISTS pgtap;
+CREATE EXTENSION pgtap WITH SCHEMA app;
+" \
   1>/dev/null
 
-# Run tests; do NOT capture output
+run_pgtap_as() {
+  local label="$1"
+  local user="$2"
+  local pwd="$3"
+  local dir="$4"
+
+  log_info "Running pgTAP as ${label} (${user})"
+
+  # Do NOT capture output in test mode; in non-test, optionally suppress unless PG_TEST_LOG=1
+  if [[ "${app_env_lc}" == "test" || "${PG_TEST_LOG:-}" == "1" ]]; then
+    pg_prove -v \
+      -d "postgres://${user}:${pwd}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}" \
+      --ext .sql \
+      $dir
+  else
+    pg_prove -v \
+      -d "postgres://${user}:${pwd}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}" \
+      --ext .sql \
+      $dir >/dev/null
+  fi
+}
+
+tests_failed=0
+tests_failed_rc=0
+tests_failed_role=""
+
 set +e
 
-if [[ "${PG_TEST_LOG:-}" == "1" ]]; then
-  pg_prove -v \
-    -d "postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}" \
-    --ext .sql \
-    /workspace/tests
-else
-  pg_prove -v \
-    -d "postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}" \
-    --ext .sql \
-    /workspace/tests >/dev/null
-fi
-rc=$?
+# Order matters: migrator often has the broadest runtime-ish permissions, app is tightest,
+# provisioner is capability-adjacent but inherits app_user DML in your model.
+for role_label in "MIGRATOR_USER" "APP_USER" "TABLE_PROVISIONER_USER" "SUPERUSER"; do
+  case "${role_label}" in
+  SUPERUSER)
+    run_pgtap_as "app_owner" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests"
+    rc=$?
+    ;;
+  MIGRATOR_USER)
+    run_pgtap_as "migrator" "${MIGRATOR_USER}" "${MIGRATOR_PWD}" "/workspace/tests/app_migrator"
+    rc=$?
+    ;;
+  APP_USER)
+    run_pgtap_as "app" "${APP_USER}" "${APP_USER_PWD}" "/workspace/tests/app_user"
+    rc=$?
+    ;;
+  TABLE_PROVISIONER_USER)
+    run_pgtap_as "table_provisioner" "${TABLE_PROVISIONER_USER}" "${TABLE_PROVISIONER_PWD}" "/workspace/tests/table_creator"
+    rc=$?
+    ;;
+  *)
+    rc=1
+    ;;
+  esac
+
+  if [[ $rc -ne 0 ]]; then
+    tests_failed=1
+    tests_failed_rc=$rc
+    tests_failed_role=$role_label
+    break
+  fi
+done
+
 set -e
 
-if [[ $rc -ne 0 ]]; then
-  log_err "pgTAP tests failed (exit ${rc})"
+if [[ "${tests_failed}" == "1" ]]; then
+  log "___________________________"
+  log ""
+  log_warn "PGTAP TESTS FAILED as ${tests_failed_role} (exit ${tests_failed_rc})"
+  log ""
+  log "___________________________"
 
   # Dump postgres logs only if they were suppressed
-  if [[ -z "${PG_LOG:-}" && -f "${pg_log_file}" ]]; then
+  if [[ -z "${PG_LOG:-}" && -f "${pg_log_file}" && "${app_env_lc}" != "test" ]]; then
     echo >&2 "---- postgres.log (tail) ----"
     tail -n 200 "${pg_log_file}" >&2 || true
     echo >&2 "-----------------------------"
   fi
+
+  # Behavior:
+  # - test: keep postgres running for inspection and wait for reload
+  # - non-test: exit non-zero (cleanup decides whether to stop postgres)
+  if [[ "${app_env_lc}" == "test" ]]; then
+    log_warn "waiting for container reload..."
+    while true; do
+      sleep 1
+    done
+  fi
+
   failed=1
-  exit $rc
+  exit "${tests_failed_rc}"
 fi
 
 log "___________________________"
 log ""
-log_ok "pgTAP tests passed"
+log_ok "pgTAP tests passed (all principals)"
 log ""
 log "___________________________"
 
 # -----------------------------------------------------------------------------
 # Final behavior:
-# - test: exit (cleanup stops postgres)
-# - non-test: keep postgres running and stream logs
+# - keep postgres running and stream logs
 # -----------------------------------------------------------------------------
-log_ok "tests complete"
-
-if [[ "${app_env_lc}" == "test" ]]; then
-  exit 0
-fi
-
 log_ok "APP_ENV=${APP_ENV}; postgres running (operational mode)"
-# Block forever on the postgres wrapper process; if it dies, exit non-zero.
 set +e
 wait "${pg_pid}"
 rc=$?

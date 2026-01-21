@@ -33,11 +33,6 @@ is_debug() {
   [[ "${DEBUG:-}" == "1" ]]
 }
 
-# stdout is a terminal
-is_tty() {
-  [[ "${TTY_OVERRIDE:-}" == "1" ]] || [[ -t 1 ]]
-}
-
 # -----------------------------------------------------------------------------
 # Logging helpers (emoji + two spaces, TTY-only)
 # -----------------------------------------------------------------------------
@@ -53,19 +48,15 @@ log_info() {
 }
 
 log_ok() {
-  is_tty || return 0
-  echo -e "${c_green}✅  $*${c_reset}"
+  echo -e "${c_green} $*${c_reset}"
 }
 
 log_warn() {
-  is_tty || return 0
-  is_debug || return 0
   echo -e "${c_yellow}⚠️  $*${c_reset}"
 }
 
 log_err() {
   # stderr TTY check is more correct for errors
-  [[ -t 2 ]] || return 0
   echo -e "${c_red}❌  $*${c_reset}" >&2
 }
 
@@ -186,6 +177,16 @@ log_info "Ensuring database exists via sqlx (superuser)"
 sqlx database create
 log_ok "Database ensured"
 
+# Dropping sqlx table
+#
+psql_super_db "${APP_DB_NAME}" "
+DROP TABLE IF EXISTS public._sqlx_migrations;
+"
+
+# setting role
+#
+psql_super_db "${APP_DB_NAME}"
+
 # -----------------------------------------------------------------------------
 # 2) Create LOGIN roles (as SUPERUSER) - these are actual DB users
 # -----------------------------------------------------------------------------
@@ -229,12 +230,111 @@ log_ok "Migrations applied"
 #   - table_creator
 #   - migrator_user
 log_info "Granting role memberships"
-psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${APP_USER};"
-psql_super_db "${APP_DB_NAME}" "GRANT table_creator TO ${TABLE_PROVISIONER_USER};"
-psql_super_db "${APP_DB_NAME}" "GRANT app_migrator TO ${MIGRATOR_USER};"
-# NOTE: we also want the migrator + table_creator to have the same priviledges as the app_user (IE - USAGE)
-psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${MIGRATOR_USER};"
-psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${TABLE_PROVISIONER_USER};"
+
+# psql_super_db "${APP_DB_NAME}" "
+# DO \$\$
+# BEGIN
+#   IF NOT EXISTS (
+#     SELECT 1
+#     FROM pg_auth_members m
+#     JOIN pg_roles r_role   ON r_role.oid = m.roleid
+#     JOIN pg_roles r_member ON r_member.oid = m.member
+#     WHERE r_role.rolname = 'app_owner'
+#       AND r_member.rolname = '${SUPERUSER}'
+#   ) THEN
+#     EXECUTE format('GRANT %I TO %I', 'app_owner', '${SUPERUSER}');
+#   END IF;
+# END
+# \$\$;
+# "
+
+psql_super_db "${APP_DB_NAME}" "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
+    JOIN pg_roles r_role   ON r_role.oid = m.roleid
+    JOIN pg_roles r_member ON r_member.oid = m.member
+    WHERE r_role.rolname = 'app_user'
+      AND r_member.rolname = '${APP_USER}'
+  ) THEN
+    EXECUTE format('GRANT %I TO %I', 'app_user', '${APP_USER}');
+  END IF;
+END
+\$\$;
+"
+
+psql_super_db "${APP_DB_NAME}" "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
+    JOIN pg_roles r_role   ON r_role.oid = m.roleid
+    JOIN pg_roles r_member ON r_member.oid = m.member
+    WHERE r_role.rolname = 'table_creator'
+      AND r_member.rolname = '${TABLE_PROVISIONER_USER}'
+  ) THEN
+    EXECUTE format('GRANT %I TO %I', 'table_creator', '${TABLE_PROVISIONER_USER}');
+  END IF;
+END
+\$\$;
+"
+
+psql_super_db "${APP_DB_NAME}" "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
+    JOIN pg_roles r_role   ON r_role.oid = m.roleid
+    JOIN pg_roles r_member ON r_member.oid = m.member
+    WHERE r_role.rolname = 'app_migrator'
+      AND r_member.rolname = '${MIGRATOR_USER}'
+  ) THEN
+    EXECUTE format('GRANT %I TO %I', 'app_migrator', '${MIGRATOR_USER}');
+  END IF;
+END
+\$\$;
+"
+
+## Migrator inherits app_user privileges
+psql_super_db "${APP_DB_NAME}" "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
+    JOIN pg_roles r_role   ON r_role.oid = m.roleid
+    JOIN pg_roles r_member ON r_member.oid = m.member
+    WHERE r_role.rolname = 'app_user'
+      AND r_member.rolname = '${MIGRATOR_USER}'
+  ) THEN
+    EXECUTE format('GRANT %I TO %I', 'app_user', '${MIGRATOR_USER}');
+  END IF;
+END
+\$\$;
+"
+
+## Table provisioner inherits app_user privileges
+psql_super_db "${APP_DB_NAME}" "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
+    JOIN pg_roles r_role   ON r_role.oid = m.roleid
+    JOIN pg_roles r_member ON r_member.oid = m.member
+    WHERE r_role.rolname = 'app_user'
+      AND r_member.rolname = '${TABLE_PROVISIONER_USER}'
+  ) THEN
+    EXECUTE format('GRANT %I TO %I', 'app_user', '${TABLE_PROVISIONER_USER}');
+  END IF;
+END
+\$\$;
+"
+
 log_ok "Memberships granted"
 
 # -----------------------------------------------------------------------------

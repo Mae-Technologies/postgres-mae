@@ -4,10 +4,28 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   v_user text := current_user;
+  invoker_role   text := session_user;   -- original login
 BEGIN
   IF v_user IN ('app_owner', 'postgres') THEN
     RETURN;
   END IF;
+
+-- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
+IF 
+   pg_has_role(invoker_role, 'app_migrator', 'member') OR pg_has_role(invoker_role, 'app_user', 'member') OR pg_has_role(invoker_role,
+  'table_creator', 'member')
+   AND EXISTS (
+     SELECT 1
+     FROM pg_event_trigger_ddl_commands() c
+     WHERE
+       -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
+       c.object_identity LIKE '__tresults___'
+       OR c.object_identity LIKE '__tcache___'
+   )
+THEN
+
+  RETURN;
+END IF;
 
   -- Block privilege/role manipulation from non-admin roles.
   IF TG_TAG IN (
