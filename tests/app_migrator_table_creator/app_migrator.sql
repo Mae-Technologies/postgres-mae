@@ -47,14 +47,14 @@ BEGIN
     -- 10–12: Protected fields cannot be altered via elevated functions
     ------------------------------------------------------------------------------
     RETURN NEXT throws_like (format('SELECT app.drop_column(''repoexample_%s'', ''id'');', tname), '%Protected column%', 'cannot drop protected column with function');
+    RETURN NEXT throws_like (format('SELECT app.add_column_from_spec (''{"table_name": "repoexample_%s", "column": { "name": "sys_client", "type": "text" }}''::jsonb);', tname), '%Protected column%', 'cannot add column with protected name with function');
     RETURN NEXT throws_like (format('SELECT app.rename_column(''repoexample_%s'', ''id'', ''this_id'');', tname), '%Protected column%', 'cannot rename protected column with function');
-    -- RETURN NEXT throws_like (format('SELECT app.add_column_from_spec (''{"table_name": "repoexample_%s", "column": { "name": "sys_client", "type": "text" }}'');', tname)::jsonb, '%Protected column%', 'cannot add column with protected name with function');
     ------------------------------------------------------------------------------
-    -- 13-15: Protected fields can be altered via elevated functions
+    -- 13-15: Non-protected fields can be altered via elevated functions
     ------------------------------------------------------------------------------
     RETURN NEXT lives_ok (format('SELECT app.rename_column(''repoexample_%s'', ''value'', ''other_value'');', tname), 'can rename protected column with function');
-    -- RETURN NEXT lives_ok (format('SELECT app.add_column_from_spec (''{"table_name": "repoexample_%s", "column": { "name": "another_value", "type": "text" }}'');', tname)::jsonb, 'can add column with protected name with function');
-    -- RETURN NEXT lives_ok (format('SELECT app.drop_column(''repoexample_%s'', ''string_value'');', tname), 'can drop protected column with function');
+    RETURN NEXT lives_ok (format('SELECT app.add_column_from_spec (''{"table_name": "repoexample_%s", "column": { "name": "another_value", "type": "text" }}''::jsonb);', tname), 'can add column with protected name with function');
+    RETURN NEXT lives_ok (format('SELECT app.drop_column(''repoexample_%s'', ''string_value'');', tname), 'can drop protected column with function');
     ------------------------------------------------------------------------------
     -- RETURN COMPLETE
     ------------------------------------------------------------------------------
