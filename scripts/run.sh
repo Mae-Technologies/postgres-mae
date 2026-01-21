@@ -229,8 +229,7 @@ cleanup() {
 
   # TEST: always stop on exit
   if [[ "${is_test_env}" == "1" ]]; then
-    stop_postgres_bounded
-    log_ok "Goodbye"
+    log "Goodbye"
     return 0
   fi
 
@@ -244,7 +243,7 @@ cleanup() {
     if kill -0 "${pg_pid}" >/dev/null 2>&1; then
       log_warn "APP_ENV=${APP_ENV}; shutdown requested; stopping postgres"
       stop_postgres_bounded
-      log_ok "Goodbye"
+      log "Goodbye"
     else
       # postgres already exited (crash or normal exit)
       if [[ "${failed}" == "1" ]]; then
@@ -252,7 +251,7 @@ cleanup() {
       else
         log_info "APP_ENV=${APP_ENV}; postgres already exited"
       fi
-      log_ok "Goodbye"
+      log "Goodbye"
     fi
     return 0
   fi
@@ -344,14 +343,14 @@ set +e
 
 # Order matters: migrator often has the broadest runtime-ish permissions, app is tightest,
 # provisioner is capability-adjacent but inherits app_user DML in your model.
-for role_label in "MIGRATOR_USER" "APP_USER" "TABLE_PROVISIONER_USER" "SUPERUSER"; do
+for role_label in "MIGRATOR_USER" "TABLE_PROVISIONER_USER" "APP_USER" "SUPERUSER"; do
   case "${role_label}" in
   SUPERUSER)
     run_pgtap_as "app_owner" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests"
     rc=$?
     ;;
   MIGRATOR_USER)
-    run_pgtap_as "migrator" "${MIGRATOR_USER}" "${MIGRATOR_PWD}" "/workspace/tests/app_migrator"
+    run_pgtap_as "migrator" "${MIGRATOR_USER}" "${MIGRATOR_PWD}" "/workspace/tests/app_migrator_table_creator"
     rc=$?
     ;;
   APP_USER)
@@ -359,7 +358,7 @@ for role_label in "MIGRATOR_USER" "APP_USER" "TABLE_PROVISIONER_USER" "SUPERUSER
     rc=$?
     ;;
   TABLE_PROVISIONER_USER)
-    run_pgtap_as "table_provisioner" "${TABLE_PROVISIONER_USER}" "${TABLE_PROVISIONER_PWD}" "/workspace/tests/table_creator"
+    run_pgtap_as "table_provisioner" "${TABLE_PROVISIONER_USER}" "${TABLE_PROVISIONER_PWD}" "/workspace/tests/app_migrator_table_creator"
     rc=$?
     ;;
   *)

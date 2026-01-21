@@ -1,6 +1,10 @@
 -- Blocks table/sequence creation unless the executing role is allowed.
 -- Install this in the "admin up-to-05" phase (superuser/admin connection).
-CREATE OR REPLACE FUNCTION app.block_disallowed_ddl ()
+DROP EVENT TRIGGER IF EXISTS trg_block_disallowed_ddl;
+
+DROP FUNCTION IF EXISTS app.block_disallowed_ddl ();
+
+CREATE FUNCTION app.block_disallowed_ddl ()
     RETURNS event_trigger
     LANGUAGE plpgsql
     AS $$
@@ -39,6 +43,7 @@ BEGIN
         c.object_identity LIKE '%_tresults__%' OR c.object_identity LIKE '%_tcache__%') THEN
         RETURN;
     END IF;
+    -- NOTE: anything under this line is pretty well redundant. the create_table_function_acl() makes the app_owner the owner of the table when it is created, there is a permission denied from SQL before it ever gets to here.
     -- Block direct CREATE/DROP for non-privileged effective roles
     IF TG_TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') THEN
         RAISE EXCEPTION 'DDL "%": not allowed for role "%". query: "%". Use create_table_from_spec/apply_table_acl.', TG_TAG, invoker_role, q;
@@ -70,8 +75,6 @@ BEGIN
     END IF;
 END;
 $$;
-
-DROP EVENT TRIGGER IF EXISTS trg_block_disallowed_ddl;
 
 CREATE EVENT TRIGGER trg_block_disallowed_ddl ON ddl_command_end
     EXECUTE FUNCTION app.block_disallowed_ddl ();

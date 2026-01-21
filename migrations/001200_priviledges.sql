@@ -41,10 +41,31 @@ REVOKE ALL ON TABLE app.table_column_policies FROM PUBLIC;
 
 ALTER TABLE app.table_column_policies OWNER TO app_owner;
 
--- Lock down the drop column function
+-- ALTER TABLE ACCESS
+REVOKE ALL ON FUNCTION app.add_column_from_spec (jsonb) FROM PUBLIC;
+
+REVOKE ALL ON FUNCTION app.drop_column (text, text) FROM PUBLIC;
+
+REVOKE ALL ON FUNCTION app.rename_column (text, text, text) FROM PUBLIC;
+
+-- CAN ADD COLUMNS
+ALTER FUNCTION app.add_column_from_spec (jsonb) OWNER TO app_owner;
+
+GRANT EXECUTE ON FUNCTION app.add_column_from_spec (jsonb) TO app_migrator;
+
+GRANT EXECUTE ON FUNCTION app.add_column_from_spec (jsonb) TO table_creator;
+
+-- CAN DROP COLUMNS
 ALTER FUNCTION app.drop_column (text, text) OWNER TO app_owner;
 
 GRANT EXECUTE ON FUNCTION app.drop_column (text, text) TO app_migrator;
 
 GRANT EXECUTE ON FUNCTION app.drop_column (text, text) TO table_creator;
+
+-- CAN RENAME COLUMNES
+ALTER FUNCTION app.rename_column (text, text, text) OWNER TO app_owner;
+
+GRANT EXECUTE ON FUNCTION app.rename_column (text, text, text) TO app_migrator;
+
+GRANT EXECUTE ON FUNCTION app.rename_column (text, text, text) TO table_creator;
 
