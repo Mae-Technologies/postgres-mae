@@ -49,7 +49,8 @@ END IF;
     GRANT USAGE, CREATE ON SCHEMA app TO app_owner;
     -- see block_disallowed_ddl function sql for details.
     GRANT USAGE, CREATE ON SCHEMA app TO app_migrator;
-    GRANT USAGE ON SCHEMA app TO table_creator;
+    -- see block_disallowed_ddl function sql for details.
+    GRANT USAGE, CREATE ON SCHEMA app TO table_creator;
     GRANT USAGE ON SCHEMA app TO app_user;
 END
 $$;
