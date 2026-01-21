@@ -7,7 +7,6 @@ services:
       watch:
         - action: rebuild
           path: .
-          initial_sync: true
     volumes:
       - ./:/workspace
     environment:
@@ -17,7 +16,7 @@ services:
       APP_ENV: "test" # Only for pg_tests container; allowed: prod, dev, stage, test (case-insensitive)
       DEBUG: "1" # Enable verbose logging in scripts
       PG_LOG: "1" # If set, stream postgres logs to stdout (pg_tests container only)
-      # PG_TEST_LOG: "1"
+      PG_TEST_LOG: "1"
 
       # -----------------------------------------------------------------------------
       # Database identity / networking
@@ -44,3 +43,5 @@ services:
 
       TABLE_PROVISIONER_USER: "table_provisioner"
       TABLE_PROVISIONER_PWD: "provisioner_secret"
+    ports:
+      - "5432:5432"
