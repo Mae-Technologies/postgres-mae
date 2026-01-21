@@ -79,15 +79,6 @@ if ! [ -x "$(command -v sqlx)" ]; then
   exit 1
 fi
 
-# docker is only required when we will actually use it (host/dev or docker-exec mode).
-# In container-local mode (CONTAINER=-1), postgres is started separately and psql is local.
-if [[ "${CONTAINER:-}" != "-1" ]]; then
-  if ! [ -x "$(command -v docker)" ]; then
-    log_err "docker is not installed"
-    exit 1
-  fi
-fi
-
 # -----------------------------------------------------------------------------
 # Load env with runtime overrides taking precedence (fallback to .env)
 #   - If a variable is already set in the environment, keep it.
@@ -136,9 +127,6 @@ _restore_var() {
 
 # List must match your .env variables (including optional/commented ones)
 _env_vars=(
-  ADMIN_MIGRATIONS_PATH
-  APP_MIGRATIONS_PATH
-
   DB_HOST
   DB_PORT
   APP_DB_NAME
@@ -148,12 +136,14 @@ _env_vars=(
 
   MIGRATOR_USER
   MIGRATOR_PWD
+
   APP_USER
   APP_USER_PWD
+
   TABLE_PROVISIONER_USER
   TABLE_PROVISIONER_PWD
 
-  SUPER_DATABASE_URL
+  SEARCH_PATH
 )
 
 for v in "${_env_vars[@]}"; do
@@ -177,72 +167,23 @@ done
 log_ok "Loaded env (runtime overrides preserved)"
 
 # -----------------------------------------------------------------------------
-# Docker bootstrap
-# -----------------------------------------------------------------------------
-
-if [[ "${CONTAINER:-}" == "-1" ]]; then
-  log_warn "CONTAINER=-1; assuming Postgres is already running locally on ${DB_HOST}:${DB_PORT}"
-elif [[ -z "${CONTAINER:-}" ]]; then
-  log_info "Starting Postgres container on port ${DB_PORT}"
-
-  RUNNING_POSTGRES_CONTAINER=$(docker ps --filter 'name=postgres' --filter "publish=${DB_PORT}" --format '{{.ID}}')
-  if [[ -n "${RUNNING_POSTGRES_CONTAINER}" ]]; then
-    log_err "A postgres container is already running on port ${DB_PORT}"
-    echo >&2 "Kill it with:"
-    echo >&2 "  docker kill ${RUNNING_POSTGRES_CONTAINER}"
-    exit 1
-  fi
-
-  CONTAINER="mae_service_pg_$(uuidgen)"
-
-  docker run \
-    --env POSTGRES_USER="${SUPERUSER}" \
-    --env POSTGRES_PASSWORD="${SUPERUSER_PWD}" \
-    --health-cmd="pg_isready -U ${SUPERUSER} || exit 1" \
-    --health-interval=1s \
-    --health-timeout=5s \
-    --health-retries=10 \
-    --publish "${DB_PORT}":5432 \
-    --detach \
-    --name "${CONTAINER}" \
-    postgres -N 1000 >/dev/null
-
-  until [[ "$(docker inspect -f "{{.State.Health.Status}}" "${CONTAINER}")" == "healthy" ]]; do
-    log_warn "Postgres is still unavailable - sleeping"
-    sleep 1
-  done
-
-  log_ok "Postgres container is healthy"
-else
-  log_warn "CONTAINER set; assuming Postgres is reachable on ${DB_HOST}:${DB_PORT}"
-fi
-
-# -----------------------------------------------------------------------------
 # Quiet Postgres helpers (stdout suppressed; errors still shown)
 # -----------------------------------------------------------------------------
 psql_super_db() {
   local db="$1"
   local sql="$2"
 
-  # Container-local mode or host-local mode: use direct psql
-  if [[ -z "${CONTAINER:-}" || "${CONTAINER:-}" == "-1" ]]; then
-    PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
-      -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
-      1>/dev/null
-    return
-  fi
-
-  # Docker-exec mode: use docker exec into the postgres container
-  docker exec -i "${CONTAINER}" \
-    psql -U "${SUPERUSER}" -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
+  PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+    -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
     1>/dev/null
+
 }
 
 # -----------------------------------------------------------------------------
 # 1) Ensure DB exists (as SUPERUSER)
 # -----------------------------------------------------------------------------
 log_info "Ensuring database exists via sqlx (superuser)"
-sqlx database create --database-url "${SUPER_DATABASE_URL}"
+sqlx database create
 log_ok "Database ensured"
 
 # -----------------------------------------------------------------------------
@@ -272,13 +213,13 @@ log_ok "LOGIN roles ensured"
 # 4) Run admin migrations as SUPERUSER against admin_migrations/
 # -----------------------------------------------------------------------------
 # This is where 01-05 live now (roles/functions/lockdowns).
-log_info "Running admin migrations (superuser) from ./${ADMIN_MIGRATIONS_PATH}/"
+log_info "Running admin migrations"
 if [[ "${DEBUG:-}" == "1" ]]; then
-  sqlx migrate run --no-dotenv --database-url "${SUPER_DATABASE_URL}" --source "${ADMIN_MIGRATIONS_PATH}"
+  sqlx migrate run
 else
-  sqlx migrate run --no-dotenv --database-url "${SUPER_DATABASE_URL}" --source "${ADMIN_MIGRATIONS_PATH}" >/dev/null
+  sqlx migrate run >/dev/null
 fi
-log_ok "Admin migrations applied"
+log_ok "Migrations applied"
 
 # -----------------------------------------------------------------------------
 # 5) Grant runtime memberships
@@ -302,9 +243,9 @@ log_ok "Memberships granted"
 log_info "Setting search_path / scope to roles"
 psql_super_db "${APP_DB_NAME}" "
   -- Set search_path
-  ALTER ROLE ${MIGRATOR_USER} SET search_path = app;
-  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = app;
-  ALTER ROLE ${APP_USER} SET search_path = app;
+  ALTER ROLE ${MIGRATOR_USER} SET search_path = ${SEARCH_PATH};
+  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = ${SEARCH_PATH};
+  ALTER ROLE ${APP_USER} SET search_path = ${SEARCH_PATH};
 "
 log_ok "Search_path's set"
 

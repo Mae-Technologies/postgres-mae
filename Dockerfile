@@ -55,7 +55,7 @@ WORKDIR /workspace
 
 COPY .env /workspace/.env
 COPY scripts/ /workspace/scripts/
-COPY admin_migrations/ /workspace/admin_migrations/
+COPY migrations/ /workspace/migrations/
 COPY tests/ /workspace/tests/
 
 RUN chmod +x /workspace/scripts/run.sh

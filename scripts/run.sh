@@ -113,8 +113,6 @@ _env_vars=(
 
   SUPERUSER
   SUPERUSER_PWD
-
-  SUPER_DATABASE_URL
 )
 
 for v in "${_env_vars[@]}"; do
@@ -164,8 +162,10 @@ fi
 # In non-test env, we aim to keep postgres running and never exit.
 should_exit=0
 
+DATABASE_URL=postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}
 export POSTGRES_USER="${SUPERUSER}"
 export POSTGRES_PASSWORD="${SUPERUSER_PWD}"
+export DATABASE_URL
 
 # Postgres logs:
 # - if PG_LOG is set: inherit stdout/stderr (verbose)
@@ -280,10 +280,6 @@ log_ok "Postgres is ready"
 
 # Run premigration script in local-postgres mode
 log_info "Running premigration script (local postgres mode)"
-
-# Tell the migrations script that this is running from inside a container and not to run regular app migrations
-export CONTAINER="-1"
-export ENV_PATH="/workspace/.env"
 
 set +e
 /workspace/scripts/sqlx_premigration.sh
