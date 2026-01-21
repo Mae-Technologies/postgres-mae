@@ -306,18 +306,31 @@ log_ok "Premigration script finished"
 # pgTAP: run the suite as multiple principals (stop on first failure)
 # -----------------------------------------------------------------------------
 
-PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
-  -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
-DROP EXTENSION IF EXISTS pgtap;
-CREATE EXTENSION pgtap WITH SCHEMA app;
-" \
-  1>/dev/null
-
 run_pgtap_as() {
   local label="$1"
   local user="$2"
   local pwd="$3"
   local dir="$4"
+
+  if [[ "${label}" == "app_owner" ]]; then
+
+    PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+      -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
+-- cannot drop the extension for public -> superuser requires it to run tests
+DROP EXTENSION IF EXISTS pgtap;
+CREATE EXTENSION IF NOT EXISTS pgtap;
+" \
+      1>/dev/null
+
+  else
+    PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+      -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
+-- cannot drop the extension for public -> superuser requires it to run tests
+DROP EXTENSION IF EXISTS pgtap;
+CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA app;
+" \
+      1>/dev/null
+  fi
 
   log_info "Running pgTAP as ${label} (${user})"
 
@@ -343,7 +356,7 @@ set +e
 
 # Order matters: migrator often has the broadest runtime-ish permissions, app is tightest,
 # provisioner is capability-adjacent but inherits app_user DML in your model.
-for role_label in "MIGRATOR_USER" "TABLE_PROVISIONER_USER" "APP_USER" "SUPERUSER"; do
+for role_label in "SUPERUSER" "MIGRATOR_USER" "TABLE_PROVISIONER_USER" "APP_USER"; do
   case "${role_label}" in
   SUPERUSER)
     run_pgtap_as "app_owner" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests"
