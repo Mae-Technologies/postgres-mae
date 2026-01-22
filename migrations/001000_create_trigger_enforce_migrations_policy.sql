@@ -3,7 +3,9 @@ CREATE OR REPLACE FUNCTION mae._enforce_immutable_columns ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
     SECURITY DEFINER
-    SET search_path = app, public
+    -- WARN: we don't require any other resources, this is an external independent service.
+    -- NOTE: if fields are required to be removed, they can be called from an internal function that can handle the logic inside the other schemas
+    SET search_path = pg_catalogue, mae
     AS $$
 DECLARE
     imm text[];

@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION mae._audit_enforce_timestamps_and_immutables ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = pg_catalogue, test, app, mae
     AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN

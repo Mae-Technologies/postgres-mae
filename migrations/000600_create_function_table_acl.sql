@@ -4,9 +4,12 @@ CREATE FUNCTION app.apply_table_acl (p_table_name text, p_insertable_columns tex
     RETURNS VOID
     LANGUAGE plpgsql
     SECURITY DEFINER
-    SET search_path = app, public
+    SET search_path = pg_catalogue, test, app, mae
     AS $$
 DECLARE
+    v_schema name;
+    v_table name;
+    v_regclass regclass;
     owner_role text := 'app_owner';
     user_role text := 'app_user';
     default_insertable text[] := ARRAY['sys_client', 'status', 'comment', 'tags', 'sys_detail', 'created_by', 'updated_by'];
@@ -15,11 +18,18 @@ DECLARE
     final_updatable text[];
     insert_list text;
     update_list text;
-    v_regclass regclass;
     v_seq_name text;
 BEGIN
     -- Qualify the table into the dedicated schema.
-    v_regclass := format('app.%I', p_table_name)::regclass;
+    -- QUALIFYING SCHEMA <-> TABLE
+    SELECT
+        o_schema,
+        o_table INTO v_schema,
+        v_table
+    FROM
+        app.parse_validate_table_name (p_table_name);
+    v_regclass := format('%I.%I', v_schema, v_table)::regclass;
+    -- SCHEMA <-> TABLE QUALIFIED
     final_insertable := COALESCE(p_insertable_columns, ARRAY[]::text[]) || default_insertable;
     final_updatable := COALESCE(p_updatable_columns, ARRAY[]::text[]) || default_updatable;
     SELECT
@@ -81,7 +91,8 @@ BEGIN
             FROM
                 unnest(immutable_cols || ARRAY['id', 'sys_client', 'created_at', 'created_by', 'status', 'sys_detail', 'tags']) AS t (c));
         PERFORM
-            app.upsert_table_column_policy (p_table_name, immutable_cols);
+            -- WARN: we are passing a string of the varified schema-table pair because that is what the function requires
+            app.upsert_table_column_policy (format('%I.%I', v_schema, v_table), immutable_cols);
     END;
 END;
 $$;

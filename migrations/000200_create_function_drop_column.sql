@@ -4,9 +4,12 @@ CREATE FUNCTION app.drop_column (_tbl text, _col text)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
-    SET search_path = app
+    SET search_path = pg_catalogue, test, app, mae
     AS $$
 DECLARE
+    v_schema name;
+    v_table name;
+    v_regclass regclass;
     protected_cols text[] := ARRAY['id', 'sys_client', 'created_at', 'created_by', 'updated_at', 'updated_by', 'status', 'sys_detail', 'tags'];
     invoker_role text := SESSION_USER;
 BEGIN
@@ -14,16 +17,22 @@ BEGIN
         RAISE EXCEPTION 'drop_column not allowed. session_user=%', invoker_role
             USING ERRCODE = '42501';
         END IF;
-        IF _tbl IS NULL OR _tbl !~ '^[a-zA-Z_][a-zA-Z0-9_]*$' THEN
-            RAISE EXCEPTION 'invalid table name: %', _tbl;
-        END IF;
+        -- QUALIFYING SCHEMA <-> TABLE
+        SELECT
+            o_schema,
+            o_table INTO v_schema,
+            v_table
+        FROM
+            app.parse_validate_table_name (_tbl);
+        v_regclass := format('%I.%I', v_schema, v_table)::regclass;
+        -- SCHEMA <-> TABLE QUALIFIED
         IF _col IS NULL OR _col !~ '^[a-zA-Z_][a-zA-Z0-9_]*$' THEN
             RAISE EXCEPTION 'invalid column name: %', _col;
         END IF;
         IF lower(_col) = ANY (protected_cols) THEN
             RAISE EXCEPTION 'Protected column "%" cannot be dropped.', _col;
         END IF;
-        EXECUTE format('ALTER TABLE app.%I DROP COLUMN %I', _tbl, _col);
+        EXECUTE format('ALTER TABLE %I DROP COLUMN %I', v_regclass, _col);
         -- Optional: re-apply ACL if your apply_table_acl expects updated allowlists
         -- (You likely have migrations controlling this, so no-op by default.)
 END;
@@ -35,6 +44,7 @@ CREATE FUNCTION app.rename_column (_tbl text, _col text, _new_col text)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = pg_catalogue, test, app, mae
     AS $$
 DECLARE
     q text := current_query();
@@ -43,14 +53,24 @@ DECLARE
     -- who called the function
     effective_role text := CURRENT_USER;
     -- function owner due to SECURITY DEFINER
+    v_schema name;
+    v_table name;
+    v_regclass regclass;
 BEGIN
-    -- Allow only a specific invoker role (or membership) to run this DDL wrapper.
-    -- Adjust 'app_ddl' to your actual migrator/runner role.
     IF NOT (pg_has_role(invoker_role, 'app_migrator', 'member') OR pg_has_role(invoker_role, 'table_creator', 'member')) THEN
         RAISE EXCEPTION 'DDL "%" not allowed for role "%". Use approved migration functions. query: "%". (effective_role="%")', 'ALTER TABLE ... DROP COLUMN', invoker_role, q, effective_role
             USING ERRCODE = '42501';
             -- insufficient_privilege
         END IF;
+        -- QUALIFYING SCHEMA <-> TABLE
+        SELECT
+            o_schema,
+            o_table INTO v_schema,
+            v_table
+        FROM
+            app.parse_validate_table_name (_tbl);
+        v_regclass := format('%I.%I', v_schema, v_table)::regclass;
+        -- SCHEMA <-> TABLE QUALIFIED
         -- Block protected columns (case-insensitive match).
         IF lower(_col) = ANY (protected_cols) THEN
             RAISE EXCEPTION 'Protected column "%" cannot be renamed.', _col
@@ -58,7 +78,10 @@ BEGIN
                 -- dependent_objects_still_exist (close enough) or pick custom
             END IF;
             -- Perform the DDL with identifier-quoting.
-            EXECUTE format('ALTER TABLE app.%I RENAME COLUMN %I TO %I', _tbl, _col, _new_col);
+            EXECUTE format('ALTER TABLE %I RENAME COLUMN %I TO %I', v_regclass, _col, _new_col);
+            -- TODO: updating the table_migration policy is required here
+            -- TODO: check for other functions too.
+            RETURN;
 END;
 $$;
 
@@ -68,11 +91,12 @@ CREATE FUNCTION app.add_column_from_spec (p_spec jsonb)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
-    -- WARN: I dont think I need this here
-    -- SET search_path = app
+    SET search_path = pg_catalogue, test, app, mae
     AS $$
 DECLARE
-    v_table_name text;
+    v_schema name;
+    v_table name;
+    v_regclass regclass;
     c jsonb;
     c_name text;
     c_type_text text;
@@ -93,13 +117,15 @@ BEGIN
         IF p_spec IS NULL THEN
             RAISE EXCEPTION 'spec must not be null';
         END IF;
-        v_table_name := p_spec ->> 'table_name';
-        IF v_table_name IS NULL OR length(v_table_name) = 0 THEN
-            RAISE EXCEPTION 'spec.table_name is required';
-        END IF;
-        IF v_table_name !~ '^[a-zA-Z_][a-zA-Z0-9_]*$' THEN
-            RAISE EXCEPTION 'invalid table_name: %', v_table_name;
-        END IF;
+        -- QUALIFYING SCHEMA <-> TABLE
+        SELECT
+            o_schema,
+            o_table INTO v_schema,
+            v_table
+        FROM
+            app.parse_validate_table_name (p_spec ->> 'table_name');
+        v_regclass := format('%I.%I', v_schema, v_table)::regclass;
+        -- SCHEMA <-> TABLE QUALIFIED
         c := p_spec -> 'column';
         IF c IS NULL OR jsonb_typeof(c) <> 'object' THEN
             RAISE EXCEPTION 'spec.column must be an object';
@@ -133,7 +159,7 @@ BEGIN
             END IF;
         END IF;
         -- Build: ALTER TABLE app.<tbl> ADD COLUMN <col> <type> [NOT NULL] [DEFAULT ...] [UNIQUE]
-        v_sql := format('ALTER TABLE app.%I ADD COLUMN %I %s', v_table_name, c_name, c_type::text);
+        v_sql := format('ALTER TABLE %I ADD COLUMN %I %s', v_regclass, c_name, c_type::text);
         IF NOT c_nullable THEN
             v_sql := v_sql || ' NOT NULL';
         END IF;
@@ -151,8 +177,10 @@ BEGIN
         END IF;
         EXECUTE v_sql;
         -- Update ACL/policy: by default, new spec column is insertable+updatable.
+        -- WARN: we're not passing a regclass, we're passing a string becuase that is what this function expects
+        -- NOTE: running v_regclass::text JUST returns the table, not the schema...
         PERFORM
-            mae._apply_table_acl (v_table_name, ARRAY[c_name], ARRAY[c_name]);
+            app.apply_table_acl (format('%I.%I', v_schema, v_table), ARRAY[c_name], ARRAY[c_name]);
 END;
 $$;
 
