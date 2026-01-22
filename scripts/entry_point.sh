@@ -64,3 +64,20 @@ set -E
 trap trap_run ERR
 
 /workspace/scripts/run.sh
+
+# TODO: the reboot on testing is hacky -- it's a concern when going into bigger environments:
+# when we fail before testing, the current impl trys to actually close postgres entirely, making it flakey and unpredictable.
+# we'd be better off handling the different states of pg at the entrypoint, so we can handle it directly.
+# the migration logic is separated however, the 'run postgres' logic should be separate and protected pretty well
+# testing and teardown should be it's own script. teardown has to be pretty clean.
+# we can make a separate script for communicating with pg directly with the socket
+# the timing of the socket migrations were particular, these should sit in .sql files just like the others.
+# enviroment gathering and logging should be separated
+#
+# WARN: setting testing as the default env is dangerous, currently, if anybody was to start it with a volume attached would have their volumes wiped
+# we should migrate to a custom test flag for batch debugging and quick traveral.
+#
+# FUTURE: wire up logging, and a dashboard for this. but it would have to work for distributed systems.
+# FUTURE: distribution
+# FUTURE: direct vault connections
+# FUTURE: cryptographic storage

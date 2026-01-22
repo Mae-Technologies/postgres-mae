@@ -178,13 +178,6 @@ sqlx database create --database-url "${DATABASE_URL}"
 
 log_ok "Database ensured"
 
-# Dropping sqlx table
-#
-# WARN: cannot drop any other migration tables as they're not ours! the public ones can be reapplied without error - and SHOULD be reapplied
-psql_super_db "${APP_DB_NAME}" "
-DROP TABLE IF EXISTS mae._sqlx_migrations;
-"
-
 # Create mae schema for sqlx migrations
 
 psql_super_db "${APP_DB_NAME}" "
@@ -206,11 +199,13 @@ END IF;
     CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION app_owner;
 END
 \$\$;
-"
+" >/dev/null 2>&1
 
-# setting role
-#
-# psql_super_db "${APP_DB_NAME}"
+# WARN: DROPPING SQLX for MAE. cannot drop any other migration tables as they're not ours! the public ones can be reapplied without error - and SHOULD be reapplied
+# Dropping sqlx table
+psql_super_db "${APP_DB_NAME}" "
+DROP TABLE IF EXISTS mae._sqlx_migrations;
+" >/dev/null 2>&1
 
 # -----------------------------------------------------------------------------
 # 2) Create LOGIN roles (as SUPERUSER) - these are actual DB users
@@ -255,23 +250,6 @@ log_ok "Migrations applied"
 #   - table_creator
 #   - migrator_user
 log_info "Granting role memberships"
-
-# psql_super_db "${APP_DB_NAME}" "
-# DO \$\$
-# BEGIN
-#   IF NOT EXISTS (
-#     SELECT 1
-#     FROM pg_auth_members m
-#     JOIN pg_roles r_role   ON r_role.oid = m.roleid
-#     JOIN pg_roles r_member ON r_member.oid = m.member
-#     WHERE r_role.rolname = 'app_owner'
-#       AND r_member.rolname = '${SUPERUSER}'
-#   ) THEN
-#     EXECUTE format('GRANT %I TO %I', 'app_owner', '${SUPERUSER}');
-#   END IF;
-# END
-# \$\$;
-# "
 
 psql_super_db "${APP_DB_NAME}" "
 DO \$\$
@@ -376,6 +354,5 @@ ALTER ROLE ${SUPERUSER} SET search_path = test, ${SEARCH_PATH}, mae, public;
 log_ok "Search_path's set"
 
 log_ok "Premigration Complete"
-log_ok "Good-bye"
 
 exit 0

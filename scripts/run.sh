@@ -29,19 +29,19 @@ log() {
 
 log_info() {
   is_debug || return 0
-  echo -e "${c_blue}🧩  $*${c_reset}"
+  echo -e "${c_blue}🔎${c_reset} $*"
 }
 
 log_ok() {
-  echo -e "${c_green}✅  $*${c_reset}"
+  echo -e "${c_green}📟${c_reset} $*"
 }
 
 log_warn() {
-  echo -e "${c_yellow}⚠️  $*${c_reset}"
+  echo -e "${c_yellow}😶${c_reset} $*"
 }
 
 log_err() {
-  echo -e "${c_red} ❌ $*${c_reset}" >&2
+  echo -e "${c_red}🔥${c_reset} $*" >&2
 }
 
 cd /workspace
@@ -163,6 +163,7 @@ fi
 # In non-test env, we aim to keep postgres running and never exit.
 should_exit=0
 
+# FIXME: I'm not a fan of exposting POSTGRES_USER and POSTGRES_PASSWORD -- if sqlx picks these up on a rouge script, it will blead into the public schema
 DATABASE_URL=postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}
 export POSTGRES_USER="${SUPERUSER}"
 export POSTGRES_PASSWORD="${SUPERUSER_PWD}"
@@ -301,6 +302,7 @@ fi
 
 log_ok "Premigration script finished"
 
+# TODO: move to it's own script
 # -----------------------------------------------------------------------------
 # pgTAP: run the suite as multiple principals (stop on first failure)
 # -----------------------------------------------------------------------------
@@ -319,24 +321,10 @@ run_pgtap_as() {
   local pwd="$3"
   local dir="$4"
 
-  # if [[ "${label}" == "app_owner" ]]; then
-
-  #     PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
-  #       -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
-  # -- cannot drop the extension for public -> superuser requires it to run tests
-  # DROP EXTENSION IF EXISTS pgtap;
-  # CREATE EXTENSION IF NOT EXISTS pgtap;
-  # " \
-  #       1>/dev/null
-
-  # FIXME: 'with schema app needs to move to test schema'
-  # else
-  # fi
-
   log_info "Running pgTAP as ${label} (${user})"
 
   # Do NOT capture output in test mode; in non-test, optionally suppress unless PG_TEST_LOG=1
-  if [[ "${app_env_lc}" == "test" || "${PG_TEST_LOG:-}" == "1" ]]; then
+  if [[ "${PG_TEST_LOG:-}" == "1" ]]; then
     pg_prove -v \
       -d "postgres://${user}:${pwd}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}" \
       --ext .sql \
@@ -421,9 +409,9 @@ fi
 log "___________________________"
 log ""
 log_ok "pgTAP tests passed (all principals)"
-log ""
 log "___________________________"
 
+#TODO: This should be at the bottom of the entrypoint script -> the final destination
 # -----------------------------------------------------------------------------
 # Final behavior:
 # - keep postgres running and stream logs

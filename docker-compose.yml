@@ -17,7 +17,7 @@ services:
       # -----------------------------------------------------------------------------
       APP_ENV: "test" # Only for pg_tests container; allowed: prod, dev, stage, test (case-insensitive)
       DEBUG: "1" # Enable verbose logging in scripts
-      PG_LOG: "1" # If set, stream postgres logs to stdout (pg_tests container only)
+      # PG_LOG: "1" # If set, stream postgres logs to stdout (pg_tests container only)
       # PG_TEST_LOG: "1"
 
       # -----------------------------------------------------------------------------
