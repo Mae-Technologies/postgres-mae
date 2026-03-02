@@ -1,0 +1,14 @@
+BEGIN;
+
+CREATE SEQUENCE IF NOT EXISTS sys_user_roles_seq START 1 INCREMENT BY 1 MINVALUE 1;
+
+CREATE TABLE IF NOT EXISTS sys_user_roles (
+  id INTEGER DEFAULT nextval('sys_user_roles_seq') PRIMARY KEY,
+  sys_user INTEGER NOT NULL REFERENCES sys_user(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  has_limits BOOLEAN NOT NULL DEFAULT FALSE,
+  limit_details JSONB,
+  tags JSONB
+);
+
+COMMIT;
