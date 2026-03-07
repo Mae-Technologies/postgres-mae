@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-push] Building postgres-mae image..."
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+if ! docker info > /dev/null 2>&1; then
+  echo "[pre-push] WARNING: Docker not running — skipping pgTAP tests"
+  exit 0
+fi
+
+IMAGE_TAG="postgres-mae-prepush-$(date +%s)"
+docker build -t "$IMAGE_TAG" "$REPO_ROOT" 2>&1
+
+echo "[pre-push] Running pgTAP tests..."
+
+# Run container detached; stream logs and kill once we see a result
+CONTAINER_ID=$(docker run -d --rm "$IMAGE_TAG")
+
+cleanup() {
+  docker kill "$CONTAINER_ID" > /dev/null 2>&1 || true
+  docker rmi "$IMAGE_TAG" > /dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+result=""
+while IFS= read -r line; do
+  echo "$line"
+  if echo "$line" | grep -q "pgTAP tests passed"; then
+    result="passed"
+    break
+  fi
+  if echo "$line" | grep -q "PGTAP TESTS FAILED\|pgTAP tests FAILED\|critical failure"; then
+    result="failed"
+    break
+  fi
+done < <(docker logs -f "$CONTAINER_ID" 2>&1)
+
+if [[ "$result" == "passed" ]]; then
+  echo "[pre-push] ✅ pgTAP tests passed — push allowed"
+  exit 0
+else
+  echo "[pre-push] ❌ pgTAP tests FAILED — push blocked"
+  exit 1
+fi
