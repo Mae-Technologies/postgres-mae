@@ -1,9 +1,11 @@
-FROM postgres:18
+FROM postgres:16-bookworm
 
 USER root
 
 # ----------------------------
 # System deps: pgtap + tooling
+# Pin postgresql-client-16 to avoid generic 'postgresql-client' metapackage
+# pulling in the latest postgres version (18+) and causing pg_config confusion.
 # ----------------------------
 RUN set -eux; \
   apt-get update; \
@@ -14,25 +16,22 @@ RUN set -eux; \
     uuid-runtime \
     perl \
     postgresql-common \
+    postgresql-client-16 \
   ; \
   rm -rf /var/lib/apt/lists/*
 
 # ----------------------------
 # pgTAP runner (pg_prove) + Postgres TAP handler
+# Install postgresql-16-pgtap explicitly rather than detecting dynamically,
+# since the generic 'postgresql-client' metapackage can install a newer
+# Postgres version, causing pg_config to report the wrong PG_MAJOR.
 # ----------------------------
 RUN set -eux; \
   apt-get update; \
   apt-get install -y --no-install-recommends \
-    postgresql-client \
     libtap-parser-sourcehandler-pgtap-perl \
+    postgresql-16-pgtap \
   ; \
-  rm -rf /var/lib/apt/lists/*
-
-# Install pgTAP matching this Postgres major version
-RUN set -eux; \
-  PG_MAJOR="$(pg_config --version | awk '{print $2}' | cut -d. -f1)"; \
-  apt-get update; \
-  apt-get install -y --no-install-recommends "postgresql-${PG_MAJOR}-pgtap"; \
   rm -rf /var/lib/apt/lists/*
 
 # ----------------------------
