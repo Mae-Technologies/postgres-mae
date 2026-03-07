@@ -60,5 +60,6 @@ COPY tests/ /workspace/tests/
 RUN chmod +x /workspace/scripts/entry_point.sh
 RUN chmod +x /workspace/scripts/run.sh
 RUN chmod +x /workspace/scripts/sqlx_premigration.sh
+RUN chmod +x /workspace/scripts/run_tests.sh
 
 ENTRYPOINT ["/workspace/scripts/entry_point.sh"]
