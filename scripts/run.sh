@@ -413,6 +413,11 @@ fi
 log "___________________________"
 log ""
 log_ok "pgTAP tests passed (all principals)"
+
+# Write sentinel file: signals to the HEALTHCHECK that all init scripts
+# completed successfully. The HEALTHCHECK will return FAIL until this exists.
+touch /tmp/postgres_init_done
+log_ok "Sentinel file written (/tmp/postgres_init_done)"
 log "___________________________"
 
 #TODO: This should be at the bottom of the entrypoint script -> the final destination
