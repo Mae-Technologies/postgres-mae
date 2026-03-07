@@ -1,107 +1,62 @@
 #!/usr/bin/bash
-# init_db.sh
+# sqlx_premigration.sh
 #
-# Starts local Postgres (Docker), creates LOGIN roles used by SQLx + the app,
-# runs migrations, and then grants membership to NOLOGIN roles.
+# Multi-database bootstrap for postgres-mae.
 #
-# Requirements implemented:
-#!/usr/bin/bash
-# init_db.sh
+# Supports two modes:
 #
-# Production/dev/CI bootstrap with a strict separation:
-#   - admin_migrations/: executed as SUPERUSER (high-trust). Contains 01-05 (roles/functions/lockdowns).
-#   - migrations/: executed as MIGRATOR_USER (low-trust). Contains normal app schema migrations.
+#   Single-DB (backward compat):
+#     Set APP_DB_NAME + MIGRATOR_USER/PWD + APP_USER/PWD + TABLE_PROVISIONER_USER/PWD
 #
-# Key security goals:
-#   - MIGRATOR_USER has minimal, typical production privileges
-#   - All role creation and sensitive privilege/ownership operations occur only under SUPERUSER
+#   Multi-DB (one DB per service):
+#     Set PG_MAE_DATABASES="api_db,accounting_db,widget_db,queue_db"
+#     Per-service creds are read from env vars:
+#       {SERVICE_UPPER}_MIGRATOR_PWD
+#       {SERVICE_UPPER}_APP_USER_PWD
+#       {SERVICE_UPPER}_PROVISIONER_PWD
+#     Where SERVICE is derived from the DB name by stripping a trailing _db suffix.
+#     e.g. api_db -> API, accounting_db -> ACCOUNTING
+#     Login role names: {service}_migrator, {service}_app, {service}_provisioner
 #
-# SQLx usage:
-#   - Admin migrations:
-#       sqlx migrate run --database-url <superuser-url> --source admin_migrations
-#   - App migrations:
-#       sqlx migrate run --database-url <migrator-url> --source migrations
-#
-# Output behavior:
-#   - Postgres (psql) output suppressed unless error
-#   - sqlx output NOT suppressed
-#   - Colored, emoji-prefixed stage logs (emoji + two spaces)
+# Security model:
+#   - NOLOGIN roles (app_user, app_migrator, table_creator, app_owner) are cluster-wide.
+#     Created by sqlx migrations (migrations/000100_roles.sql).
+#   - LOGIN roles are per-service and cluster-scoped.
+#   - Memberships are granted after migrations complete per-DB.
 
 set -eo pipefail
 
-is_debug() {
-  [[ "${DEBUG:-}" == "1" ]]
-}
+is_debug() { [[ "${DEBUG:-}" == "1" ]]; }
 
-# -----------------------------------------------------------------------------
-# Logging helpers (emoji + two spaces, TTY-only)
-# -----------------------------------------------------------------------------
-c_reset="\033[0m"
-c_blue="\033[34m"
-c_green="\033[32m"
-c_yellow="\033[33m"
-c_red="\033[31m"
+c_reset="\033[0m"; c_blue="\033[34m"; c_green="\033[32m"; c_yellow="\033[33m"; c_red="\033[31m"
+log_info() { is_debug || return 0; echo -e "${c_blue}🧩  $*${c_reset}"; }
+log_ok()   { echo -e "${c_green} $*${c_reset}"; }
+log_warn() { echo -e "${c_yellow}⚠️  $*${c_reset}"; }
+log_err()  { echo -e "${c_red}❌  $*${c_reset}" >&2; }
 
-log_info() {
-  is_debug || return 0
-  echo -e "${c_blue}🧩  $*${c_reset}"
-}
-
-log_ok() {
-  echo -e "${c_green} $*${c_reset}"
-}
-
-log_warn() {
-  echo -e "${c_yellow}⚠️  $*${c_reset}"
-}
-
-log_err() {
-  # stderr TTY check is more correct for errors
-  echo -e "${c_red}❌  $*${c_reset}" >&2
-}
-
-# -----------------------------------------------------------------------------
-# Tooling checks
-# -----------------------------------------------------------------------------
 if ! [ -x "$(command -v sqlx)" ]; then
   log_err "sqlx is not installed"
-  echo >&2 "Install:"
-  echo >&2 "  cargo install --version='~0.8' sqlx-cli --no-default-features --features rustls,postgres"
   exit 1
 fi
 
-# -----------------------------------------------------------------------------
-# Load env with runtime overrides taking precedence (fallback to .env)
-#   - If a variable is already set in the environment, keep it.
-#   - Otherwise, populate it from the .env file.
-# -----------------------------------------------------------------------------
 export ENV_PATH="${ENV_PATH:-.env}"
 if [[ ! -f "${ENV_PATH}" ]]; then
   log_err "ENV_PATH not found: ${ENV_PATH}"
   exit 1
 fi
 
-# Require variables (do NOT default)
 require_var() {
   local name="$1"
-  # ${!name+x} checks "is set", even if empty; then also reject empty explicitly
-  if [[ -z "${!name+x}" ]]; then
-    log_err "Required env var not set: ${name}"
-    exit 1
-  fi
-  if [[ -z "${!name}" ]]; then
-    log_err "Required env var is empty: ${name}"
+  if [[ -z "${!name+x}" || -z "${!name}" ]]; then
+    log_err "Required env var not set or empty: ${name}"
     exit 1
   fi
 }
 
-# Preserve runtime overrides for ALL vars in your .env (keep if already set)
 _preserve_var() {
   local name="$1"
   if [[ "${!name+x}" == "x" ]]; then
-    # Mark as preserved + store value (can be empty; still considered "set")
     eval "__preserve__${name}=1"
-    # printf %q to safely re-export later even with special chars
     eval "__value__${name}=$(printf '%q' "${!name}")"
   else
     eval "__preserve__${name}=0"
@@ -116,243 +71,202 @@ _restore_var() {
   fi
 }
 
-# List must match your .env variables (including optional/commented ones)
 _env_vars=(
-  DB_HOST
-  DB_PORT
-  APP_DB_NAME
-
-  SUPERUSER
-  SUPERUSER_PWD
-
-  MIGRATOR_USER
-  MIGRATOR_PWD
-
-  APP_USER
-  APP_USER_PWD
-
-  TABLE_PROVISIONER_USER
-  TABLE_PROVISIONER_PWD
-
-  SEARCH_PATH
+  DB_HOST DB_PORT APP_DB_NAME
+  SUPERUSER SUPERUSER_PWD
+  MIGRATOR_USER MIGRATOR_PWD
+  APP_USER APP_USER_PWD
+  TABLE_PROVISIONER_USER TABLE_PROVISIONER_PWD
+  SEARCH_PATH PG_MAE_DATABASES
+  API_MIGRATOR_PWD API_APP_USER_PWD API_PROVISIONER_PWD
+  ACCOUNTING_MIGRATOR_PWD ACCOUNTING_APP_USER_PWD ACCOUNTING_PROVISIONER_PWD
+  WIDGET_MIGRATOR_PWD WIDGET_APP_USER_PWD WIDGET_PROVISIONER_PWD
+  QUEUE_MIGRATOR_PWD QUEUE_APP_USER_PWD QUEUE_PROVISIONER_PWD
 )
 
-for v in "${_env_vars[@]}"; do
-  _preserve_var "${v}"
-done
+for v in "${_env_vars[@]}"; do _preserve_var "${v}"; done
 
 log_info "Loading env from ${ENV_PATH}"
-set -a
-# shellcheck disable=SC1090
-source "${ENV_PATH}"
-set +a
+set -a; source "${ENV_PATH}"; set +a
 
-for v in "${_env_vars[@]}"; do
-  _restore_var "${v}"
-done
+for v in "${_env_vars[@]}"; do _restore_var "${v}"; done
 
-for v in "${_env_vars[@]}"; do
-  require_var "${v}"
-done
+for v in DB_HOST DB_PORT SUPERUSER SUPERUSER_PWD SEARCH_PATH; do require_var "${v}"; done
 
 log_ok "Loaded env (runtime overrides preserved)"
 
-# -----------------------------------------------------------------------------
-# Quiet Postgres helpers (stdout suppressed; errors still shown)
-# -----------------------------------------------------------------------------
-psql_super_db() {
-  local db="$1"
-  local sql="$2"
+# Resolve database list
+_multi_db_mode=0
+if [[ -n "${PG_MAE_DATABASES:-}" ]]; then
+  _multi_db_mode=1
+  IFS=',' read -ra _databases <<< "${PG_MAE_DATABASES}"
+  log_ok "Multi-DB mode: ${PG_MAE_DATABASES}"
+else
+  require_var APP_DB_NAME
+  _databases=("${APP_DB_NAME}")
+  log_ok "Single-DB mode: ${APP_DB_NAME}"
+fi
 
-  PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+psql_super_db() {
+  local db="$1" sql="$2"
+  PGPASSWORD="${SUPERUSER_PWD}" psql \
+    -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
     -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
     1>/dev/null
-
 }
 
-# -----------------------------------------------------------------------------
-# 1) Ensure DB exists (as SUPERUSER)
-# -----------------------------------------------------------------------------
-log_info "Ensuring database exists via sqlx (superuser)"
-sqlx database create --database-url "${DATABASE_URL}"
+get_service_var() {
+  local varname="${1}_${2}"
+  echo "${!varname:-}"
+}
 
-log_ok "Database ensured"
+for _raw_db in "${_databases[@]}"; do
+  _db="$(echo "${_raw_db}" | xargs)"
+  _service="${_db%_db}"
+  _SERVICE="$(echo "${_service}" | tr '[:lower:]' '[:upper:]')"
 
-# Create mae schema for sqlx migrations
+  log_ok "── Setting up database: ${_db} (service: ${_service}) ──"
 
-psql_super_db "${APP_DB_NAME}" "
+  if [[ "${_multi_db_mode}" == "1" ]]; then
+    _mig_user="${_service}_migrator"
+    _mig_pwd="$(get_service_var "${_SERVICE}" "MIGRATOR_PWD")"
+    _app_user="${_service}_app"
+    _app_pwd="$(get_service_var "${_SERVICE}" "APP_USER_PWD")"
+    _prov_user="${_service}_provisioner"
+    _prov_pwd="$(get_service_var "${_SERVICE}" "PROVISIONER_PWD")"
 
+    [[ -z "${_mig_pwd}" ]]  && { log_err "Missing ${_SERVICE}_MIGRATOR_PWD for ${_db}";  exit 1; }
+    [[ -z "${_app_pwd}" ]]  && { log_err "Missing ${_SERVICE}_APP_USER_PWD for ${_db}";  exit 1; }
+    [[ -z "${_prov_pwd}" ]] && { log_err "Missing ${_SERVICE}_PROVISIONER_PWD for ${_db}"; exit 1; }
+  else
+    require_var MIGRATOR_USER; require_var MIGRATOR_PWD
+    require_var APP_USER; require_var APP_USER_PWD
+    require_var TABLE_PROVISIONER_USER; require_var TABLE_PROVISIONER_PWD
+    _mig_user="${MIGRATOR_USER}";          _mig_pwd="${MIGRATOR_PWD}"
+    _app_user="${APP_USER}";               _app_pwd="${APP_USER_PWD}"
+    _prov_user="${TABLE_PROVISIONER_USER}"; _prov_pwd="${TABLE_PROVISIONER_PWD}"
+  fi
+
+  _db_url="postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${_db}"
+
+  # 1) Create DB
+  log_info "Creating database ${_db}"
+  sqlx database create --database-url "${_db_url}"
+  log_ok "Database ${_db} created/exists"
+
+  # 2) Create schemas
+  psql_super_db "${_db}" "
 DO \$\$
 BEGIN
-    IF NOT EXISTS (
-        SELECT
-            1
-        FROM
-            pg_roles
-        WHERE
-            rolname = 'app_owner') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_owner') THEN
     CREATE ROLE app_owner NOLOGIN;
-END IF;
-    -- Create schema owned by app_owner
-    CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION app_owner;
-    CREATE SCHEMA IF NOT EXISTS mae AUTHORIZATION app_owner;
-    CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION app_owner;
+  END IF;
+  CREATE SCHEMA IF NOT EXISTS app  AUTHORIZATION app_owner;
+  CREATE SCHEMA IF NOT EXISTS mae  AUTHORIZATION app_owner;
+  CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION app_owner;
 END
 \$\$;
-" >/dev/null 2>&1
+" 2>/dev/null
 
-# WARN: DROPPING SQLX for MAE. cannot drop any other migration tables as they're not ours! the public ones can be reapplied without error - and SHOULD be reapplied
-# Dropping sqlx table
-psql_super_db "${APP_DB_NAME}" "
-DROP TABLE IF EXISTS mae._sqlx_migrations;
-" >/dev/null 2>&1
+  # 3) Drop mae._sqlx_migrations to allow clean re-apply of mae-schema migrations
+  psql_super_db "${_db}" "DROP TABLE IF EXISTS mae._sqlx_migrations;" 2>/dev/null
 
-# -----------------------------------------------------------------------------
-# 2) Create LOGIN roles (as SUPERUSER) - these are actual DB users
-# -----------------------------------------------------------------------------
-log_info "Ensuring LOGIN roles exist (superuser)"
-psql_super_db "${APP_DB_NAME}" "
+  # 4) Create per-service LOGIN roles (cluster-level, idempotent)
+  log_info "Ensuring LOGIN roles for ${_service}"
+  psql_super_db "${_db}" "
 DO \$\$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_USER}') THEN
-    CREATE ROLE ${APP_USER} LOGIN PASSWORD '${APP_USER_PWD}';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${_mig_user}') THEN
+    CREATE ROLE ${_mig_user} LOGIN PASSWORD '${_mig_pwd}';
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${MIGRATOR_USER}') THEN
-    CREATE ROLE ${MIGRATOR_USER} LOGIN PASSWORD '${MIGRATOR_PWD}';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${_app_user}') THEN
+    CREATE ROLE ${_app_user} LOGIN PASSWORD '${_app_pwd}';
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${TABLE_PROVISIONER_USER}') THEN
-    CREATE ROLE ${TABLE_PROVISIONER_USER} LOGIN PASSWORD '${TABLE_PROVISIONER_PWD}';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${_prov_user}') THEN
+    CREATE ROLE ${_prov_user} LOGIN PASSWORD '${_prov_pwd}';
   END IF;
 END
 \$\$;
 "
-log_ok "LOGIN roles ensured"
+  log_ok "LOGIN roles ensured for ${_service}"
 
-# -----------------------------------------------------------------------------
-# 4) Run admin migrations as SUPERUSER against admin_migrations/
-# -----------------------------------------------------------------------------
-# This is where 01-05 live now (roles/functions/lockdowns).
-log_info "Running admin migrations"
-if [[ "${DEBUG:-}" == "1" ]]; then
-  sqlx migrate run --database-url "${DATABASE_URL}?options=-csearch_path%3Dmae"
-else
-  sqlx migrate run >/dev/null
-fi
-log_ok "Migrations applied"
+  # 5) Run sqlx migrations
+  log_info "Running migrations on ${_db}"
+  if [[ "${DEBUG:-}" == "1" ]]; then
+    sqlx migrate run --database-url "${_db_url}?options=-csearch_path%3Dmae"
+  else
+    sqlx migrate run --database-url "${_db_url}?options=-csearch_path%3Dmae" >/dev/null
+  fi
+  log_ok "Migrations applied to ${_db}"
 
-# -----------------------------------------------------------------------------
-# 5) Grant runtime memberships
-# -----------------------------------------------------------------------------
-# These roles are expected to be created by admin_migrations:
-#   - app_user
-#   - table_creator
-#   - migrator_user
-log_info "Granting role memberships"
+  # 6) Grant NOLOGIN memberships
+  log_info "Granting memberships for ${_service}"
 
-psql_super_db "${APP_DB_NAME}" "
+  # migrator -> app_migrator + app_user
+  psql_super_db "${_db}" "
 DO \$\$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_auth_members m
-    JOIN pg_roles r_role   ON r_role.oid = m.roleid
-    JOIN pg_roles r_member ON r_member.oid = m.member
-    WHERE r_role.rolname = 'app_user'
-      AND r_member.rolname = '${APP_USER}'
-  ) THEN
-    EXECUTE format('GRANT %I TO %I', 'app_user', '${APP_USER}');
+  IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles rr ON rr.oid = m.roleid JOIN pg_roles rm ON rm.oid = m.member
+    WHERE rr.rolname = 'app_migrator' AND rm.rolname = '${_mig_user}') THEN
+    EXECUTE format('GRANT %I TO %I', 'app_migrator', '${_mig_user}');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles rr ON rr.oid = m.roleid JOIN pg_roles rm ON rm.oid = m.member
+    WHERE rr.rolname = 'app_user' AND rm.rolname = '${_mig_user}') THEN
+    EXECUTE format('GRANT %I TO %I', 'app_user', '${_mig_user}');
   END IF;
 END
 \$\$;
 "
 
-psql_super_db "${APP_DB_NAME}" "
+  # provisioner -> table_creator + app_user
+  psql_super_db "${_db}" "
 DO \$\$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_auth_members m
-    JOIN pg_roles r_role   ON r_role.oid = m.roleid
-    JOIN pg_roles r_member ON r_member.oid = m.member
-    WHERE r_role.rolname = 'table_creator'
-      AND r_member.rolname = '${TABLE_PROVISIONER_USER}'
-  ) THEN
-    EXECUTE format('GRANT %I TO %I', 'table_creator', '${TABLE_PROVISIONER_USER}');
+  IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles rr ON rr.oid = m.roleid JOIN pg_roles rm ON rm.oid = m.member
+    WHERE rr.rolname = 'table_creator' AND rm.rolname = '${_prov_user}') THEN
+    EXECUTE format('GRANT %I TO %I', 'table_creator', '${_prov_user}');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles rr ON rr.oid = m.roleid JOIN pg_roles rm ON rm.oid = m.member
+    WHERE rr.rolname = 'app_user' AND rm.rolname = '${_prov_user}') THEN
+    EXECUTE format('GRANT %I TO %I', 'app_user', '${_prov_user}');
   END IF;
 END
 \$\$;
 "
 
-psql_super_db "${APP_DB_NAME}" "
+  # app login -> app_user
+  psql_super_db "${_db}" "
 DO \$\$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_auth_members m
-    JOIN pg_roles r_role   ON r_role.oid = m.roleid
-    JOIN pg_roles r_member ON r_member.oid = m.member
-    WHERE r_role.rolname = 'app_migrator'
-      AND r_member.rolname = '${MIGRATOR_USER}'
-  ) THEN
-    EXECUTE format('GRANT %I TO %I', 'app_migrator', '${MIGRATOR_USER}');
+  IF NOT EXISTS (SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles rr ON rr.oid = m.roleid JOIN pg_roles rm ON rm.oid = m.member
+    WHERE rr.rolname = 'app_user' AND rm.rolname = '${_app_user}') THEN
+    EXECUTE format('GRANT %I TO %I', 'app_user', '${_app_user}');
   END IF;
 END
 \$\$;
 "
 
-## Migrator inherits app_user privileges
-psql_super_db "${APP_DB_NAME}" "
-DO \$\$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_auth_members m
-    JOIN pg_roles r_role   ON r_role.oid = m.roleid
-    JOIN pg_roles r_member ON r_member.oid = m.member
-    WHERE r_role.rolname = 'app_user'
-      AND r_member.rolname = '${MIGRATOR_USER}'
-  ) THEN
-    EXECUTE format('GRANT %I TO %I', 'app_user', '${MIGRATOR_USER}');
-  END IF;
-END
-\$\$;
+  log_ok "Memberships granted for ${_service}"
+
+  # 7) Set search_path per role
+  log_info "Setting search_path for ${_service} roles"
+  psql_super_db "${_db}" "
+ALTER ROLE ${_mig_user}  SET search_path = test, ${SEARCH_PATH}, mae;
+ALTER ROLE ${_prov_user} SET search_path = test, ${SEARCH_PATH};
+ALTER ROLE ${_app_user}  SET search_path = test, ${SEARCH_PATH};
 "
+  log_ok "search_path set for ${_service}"
+done
 
-## Table provisioner inherits app_user privileges
-psql_super_db "${APP_DB_NAME}" "
-DO \$\$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_auth_members m
-    JOIN pg_roles r_role   ON r_role.oid = m.roleid
-    JOIN pg_roles r_member ON r_member.oid = m.member
-    WHERE r_role.rolname = 'app_user'
-      AND r_member.rolname = '${TABLE_PROVISIONER_USER}'
-  ) THEN
-    EXECUTE format('GRANT %I TO %I', 'app_user', '${TABLE_PROVISIONER_USER}');
-  END IF;
-END
-\$\$;
-"
-
-log_ok "Memberships granted"
-
-# -----------------------------------------------------------------------------
-# 6) Set scopes / search_path to roles
-# -----------------------------------------------------------------------------
-log_info "Setting search_path / scope to roles ${SEARCH_PATH}"
-psql_super_db "${APP_DB_NAME}" "
-  -- Set search_path
+# Set superuser search_path cluster-wide
+psql_super_db "${_databases[0]}" "
 ALTER ROLE ${SUPERUSER} SET search_path = test, ${SEARCH_PATH}, mae, public;
-  ALTER ROLE ${MIGRATOR_USER} SET search_path = test, ${SEARCH_PATH};
-  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = test, ${SEARCH_PATH};
-  ALTER ROLE ${APP_USER} SET search_path = test, ${SEARCH_PATH};
 "
-log_ok "Search_path's set"
 
-log_ok "Premigration Complete"
-
+log_ok "Premigration complete (${#_databases[@]} database(s))"
 exit 0

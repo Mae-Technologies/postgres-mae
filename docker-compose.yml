@@ -1,6 +1,26 @@
+# docker-compose.yml
+#
+# Local dev: runs postgres-mae with all 4 service databases initialized.
+#
+# Image: ghcr.io/mae-technologies/postgres-mae
+# Port:  5432 (default postgres port)
+#
+# Multi-DB mode is enabled by setting PG_MAE_DATABASES.
+# Each value is a database name; the service name is derived by stripping
+# a trailing _db suffix. Per-service login roles are created automatically:
+#   {service}_migrator  → inherits app_migrator + app_user
+#   {service}_app       → inherits app_user
+#   {service}_provisioner → inherits table_creator + app_user
+#
+# Connection strings (local dev):
+#   api:        postgres://api_migrator:api_migrator_secret@localhost:5432/api_db
+#   accounting: postgres://accounting_migrator:accounting_migrator_secret@localhost:5432/accounting_db
+#   widget:     postgres://widget_migrator:widget_migrator_secret@localhost:5432/widget_db
+#   queue:      postgres://queue_migrator:queue_migrator_secret@localhost:5432/queue_db
+
 services:
   postgres_mae:
-    image: postgres-mae:v18
+    image: ghcr.io/mae-technologies/postgres-mae:latest
     container_name: postgres-mae
     build: .
     develop:
@@ -12,37 +32,55 @@ services:
     volumes:
       - ./:/workspace
     environment:
-      # -----------------------------------------------------------------------------
-      # script config
-      # -----------------------------------------------------------------------------
-      APP_ENV: "test" # Only for pg_tests container; allowed: prod, dev, stage, test (case-insensitive)
-      DEBUG: "1" # Enable verbose logging in scripts
-      # PG_LOG: "1" # If set, stream postgres logs to stdout (pg_tests container only)
+      # -------------------------------------------------------------------------
+      # Script config
+      # -------------------------------------------------------------------------
+      APP_ENV: "test"
+      DEBUG: "1"
+      # PG_LOG: "1"
       # PG_TEST_LOG: "1"
 
-      # -----------------------------------------------------------------------------
+      # -------------------------------------------------------------------------
       # Database identity / networking
-      # -----------------------------------------------------------------------------
+      # -------------------------------------------------------------------------
       DB_HOST: "127.0.0.1"
-      DB_PORT: "2345" # FIXME: this is counterintuitive, the pg_db port should default to 5432
-      APP_DB_NAME: "mae_test"
+      DB_PORT: "5432"
 
-      # -----------------------------------------------------------------------------
+      # -------------------------------------------------------------------------
+      # Multi-DB mode: one DB per service
+      # -------------------------------------------------------------------------
+      PG_MAE_DATABASES: "api_db,accounting_db,widget_db,queue_db"
+
+      # -------------------------------------------------------------------------
       # Postgres bootstrap superuser
-      # -----------------------------------------------------------------------------
+      # -------------------------------------------------------------------------
       SUPERUSER: "postgres"
       SUPERUSER_PWD: "password"
 
-      # -----------------------------------------------------------------------------
-      # LOGIN roles
-      # -----------------------------------------------------------------------------
-      MIGRATOR_USER: "db_migrator"
-      MIGRATOR_PWD: "migrator_secret"
+      # -------------------------------------------------------------------------
+      # Per-service credentials
+      # Login roles created: {service}_migrator, {service}_app, {service}_provisioner
+      # -------------------------------------------------------------------------
 
-      APP_USER: "app"
-      APP_USER_PWD: "secret"
+      # api_db
+      API_MIGRATOR_PWD: "api_migrator_secret"
+      API_APP_USER_PWD: "api_app_secret"
+      API_PROVISIONER_PWD: "api_provisioner_secret"
 
-      TABLE_PROVISIONER_USER: "table_provisioner"
-      TABLE_PROVISIONER_PWD: "provisioner_secret"
+      # accounting_db
+      ACCOUNTING_MIGRATOR_PWD: "accounting_migrator_secret"
+      ACCOUNTING_APP_USER_PWD: "accounting_app_secret"
+      ACCOUNTING_PROVISIONER_PWD: "accounting_provisioner_secret"
+
+      # widget_db
+      WIDGET_MIGRATOR_PWD: "widget_migrator_secret"
+      WIDGET_APP_USER_PWD: "widget_app_secret"
+      WIDGET_PROVISIONER_PWD: "widget_provisioner_secret"
+
+      # queue_db
+      QUEUE_MIGRATOR_PWD: "queue_migrator_secret"
+      QUEUE_APP_USER_PWD: "queue_app_secret"
+      QUEUE_PROVISIONER_PWD: "queue_provisioner_secret"
+
     ports:
-      - "2345:2345"
+      - "5432:5432"
