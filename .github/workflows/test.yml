@@ -1,0 +1,38 @@
+name: pgTAP Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  pgtap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build postgres-mae image
+        run: docker build -t postgres-mae-test .
+
+      - name: Run pgTAP tests
+        run: |
+          CID=$(docker run -d -e PG_TEST_LOG=1 postgres-mae-test)
+          RESULT=""
+          while IFS= read -r line; do
+            echo "$line"
+            if echo "$line" | grep -q "pgTAP tests passed"; then
+              RESULT="PASS"
+              break
+            elif echo "$line" | grep -qE "PGTAP TESTS FAILED|FAILED"; then
+              RESULT="FAIL"
+              break
+            fi
+          done < <(docker logs -f "$CID" 2>&1)
+          docker kill "$CID" > /dev/null 2>&1 || true
+          docker rm "$CID" > /dev/null 2>&1 || true
+          if [ "$RESULT" != "PASS" ]; then
+            echo "❌ pgTAP tests FAILED"
+            exit 1
+          fi
+          echo "✅ pgTAP tests passed"
