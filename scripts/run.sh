@@ -345,10 +345,14 @@ set +e
 
 # Order matters: migrator often has the broadest runtime-ish permissions, app is tightest,
 # provisioner is capability-adjacent but inherits app_user DML in your model.
-for role_label in "SUPERUSER" "MIGRATOR_USER" "TABLE_PROVISIONER_USER" "APP_USER"; do
+for role_label in "SUPERUSER" "ROLES" "MIGRATOR_USER" "TABLE_PROVISIONER_USER" "APP_USER"; do
   case "${role_label}" in
   SUPERUSER)
     run_pgtap_as "admin" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests"
+    rc=$?
+    ;;
+  ROLES)
+    run_pgtap_as "roles (superuser)" "${SUPERUSER}" "${SUPERUSER_PWD}" "/workspace/tests/roles"
     rc=$?
     ;;
   MIGRATOR_USER)

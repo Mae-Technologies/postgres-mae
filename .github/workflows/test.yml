@@ -1,8 +1,10 @@
 name: pgTAP Tests
 
 on:
-  push:
   pull_request:
+    branches:
+      - main
+      - master
 
 jobs:
   pgtap:
@@ -19,10 +21,10 @@ jobs:
           RESULT=""
           while IFS= read -r line; do
             echo "$line"
-            if echo "$line" | grep -qE "Result: PASS|pgTAP tests passed"; then
+            if echo "$line" | grep -q "pgTAP tests passed"; then
               RESULT="PASS"
               break
-            elif echo "$line" | grep -qE "Result: FAIL|FAILED"; then
+            elif echo "$line" | grep -qE "PGTAP TESTS FAILED|FAILED"; then
               RESULT="FAIL"
               break
             fi
