@@ -103,10 +103,12 @@ trap_run() {
     PGPASSWORD="${SUPERUSER_PWD}" psql \
       -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
       -d postgres -v ON_ERROR_STOP=1 \
-      --set=app_db_name="${APP_DB_NAME}" --set=test_db_name="test" \
+      --set=app_db_name="${APP_DB_NAME}" --set=test_db_name="${TEST_DB_NAME:-test_db}" \
+      --set=mae_db_name="${MAE_DB_NAME:-mae}" \
       >/dev/null 2>&1 <<'SQL'
 REVOKE CONNECT ON DATABASE :"app_db_name" FROM PUBLIC;
 REVOKE CONNECT ON DATABASE :"test_db_name" FROM PUBLIC;
+REVOKE CONNECT ON DATABASE :"mae_db_name" FROM PUBLIC;
 
 SELECT pg_terminate_backend(pid)
 FROM pg_stat_activity
