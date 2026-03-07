@@ -227,4 +227,4 @@ postgres-mae includes a hard safeguard against accidental database destruction. 
 
 ## License
 
-MIT — see [LICENSE](LICENSE) *(pending issue #32)*
+MIT — see [LICENSE](LICENSE)
