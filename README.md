@@ -10,6 +10,16 @@ This repo focuses on **build and test correctness** — schema migrations are ve
 
 Image publishing is handled by the [`Mae-Technologies/concourse_ci`](https://github.com/Mae-Technologies/concourse_ci) pipeline (see [concourse_ci#51](https://github.com/Mae-Technologies/concourse_ci/issues/51)). This repo does **not** manage image publishing or GHCR automation.
 
+## Development Setup
+
+After cloning, install the git hooks:
+
+```bash
+bash scripts/install-hooks.sh
+```
+
+This runs pgTAP tests locally before every push. Pushes are blocked if tests fail.
+
 ## Sources
 
 - https://pgtap.org/documentation.html#has_column
