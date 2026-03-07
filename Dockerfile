@@ -1,4 +1,4 @@
-FROM postgres:18
+FROM postgres:16
 
 USER root
 
@@ -17,7 +17,6 @@ RUN set -eux; \
     libssl-dev \
     perl \
     postgresql-common \
-    docker.io \
   ; \
   rm -rf /var/lib/apt/lists/*
 
