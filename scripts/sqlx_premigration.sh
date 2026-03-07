@@ -1,30 +1,21 @@
 #!/usr/bin/bash
-# init_db.sh
-#
-# Starts local Postgres (Docker), creates LOGIN roles used by SQLx + the app,
-# runs migrations, and then grants membership to NOLOGIN roles.
-#
-# Requirements implemented:
-#!/usr/bin/bash
-# init_db.sh
+# sqlx_premigration.sh
 #
 # Production/dev/CI bootstrap with a strict separation:
-#   - admin_migrations/: executed as SUPERUSER (high-trust). Contains 01-05 (roles/functions/lockdowns).
-#   - migrations/: executed as MIGRATOR_USER (low-trust). Contains normal app schema migrations.
+#   - migrations/: executed as SUPERUSER against the mae schema.
 #
 # Key security goals:
 #   - MIGRATOR_USER has minimal, typical production privileges
 #   - All role creation and sensitive privilege/ownership operations occur only under SUPERUSER
 #
-# SQLx usage:
-#   - Admin migrations:
-#       sqlx migrate run --database-url <superuser-url> --source admin_migrations
-#   - App migrations:
-#       sqlx migrate run --database-url <migrator-url> --source migrations
+# Migration strategy:
+#   - Previously used sqlx-cli (compiled from source, ~10-15 min Docker build).
+#   - Replaced with psql + ordered SQL files for fast, dependency-free migrations.
+#   - Migration files use CREATE OR REPLACE / IF NOT EXISTS so re-runs are idempotent.
+#   - A mae._migrations tracking table records applied files (replaces _sqlx_migrations).
 #
 # Output behavior:
 #   - Postgres (psql) output suppressed unless error
-#   - sqlx output NOT suppressed
 #   - Colored, emoji-prefixed stage logs (emoji + two spaces)
 
 set -eo pipefail
@@ -56,24 +47,11 @@ log_warn() {
 }
 
 log_err() {
-  # stderr TTY check is more correct for errors
   echo -e "${c_red}❌  $*${c_reset}" >&2
 }
 
 # -----------------------------------------------------------------------------
-# Tooling checks
-# -----------------------------------------------------------------------------
-if ! [ -x "$(command -v sqlx)" ]; then
-  log_err "sqlx is not installed"
-  echo >&2 "Install:"
-  echo >&2 "  cargo install --version='~0.8' sqlx-cli --no-default-features --features rustls,postgres"
-  exit 1
-fi
-
-# -----------------------------------------------------------------------------
 # Load env with runtime overrides taking precedence (fallback to .env)
-#   - If a variable is already set in the environment, keep it.
-#   - Otherwise, populate it from the .env file.
 # -----------------------------------------------------------------------------
 export ENV_PATH="${ENV_PATH:-.env}"
 if [[ ! -f "${ENV_PATH}" ]]; then
@@ -84,7 +62,6 @@ fi
 # Require variables (do NOT default)
 require_var() {
   local name="$1"
-  # ${!name+x} checks "is set", even if empty; then also reject empty explicitly
   if [[ -z "${!name+x}" ]]; then
     log_err "Required env var not set: ${name}"
     exit 1
@@ -99,9 +76,7 @@ require_var() {
 _preserve_var() {
   local name="$1"
   if [[ "${!name+x}" == "x" ]]; then
-    # Mark as preserved + store value (can be empty; still considered "set")
     eval "__preserve__${name}=1"
-    # printf %q to safely re-export later even with special chars
     eval "__value__${name}=$(printf '%q' "${!name}")"
   else
     eval "__preserve__${name}=0"
@@ -116,7 +91,6 @@ _restore_var() {
   fi
 }
 
-# List must match your .env variables (including optional/commented ones)
 _env_vars=(
   DB_HOST
   DB_PORT
@@ -160,6 +134,9 @@ log_ok "Loaded env (runtime overrides preserved)"
 # -----------------------------------------------------------------------------
 # Quiet Postgres helpers (stdout suppressed; errors still shown)
 # -----------------------------------------------------------------------------
+DATABASE_URL=postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}
+export DATABASE_URL
+
 psql_super_db() {
   local db="$1"
   local sql="$2"
@@ -167,33 +144,28 @@ psql_super_db() {
   PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
     -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
     1>/dev/null
-
 }
 
 # -----------------------------------------------------------------------------
 # 1) Ensure DB exists (as SUPERUSER)
 # -----------------------------------------------------------------------------
-log_info "Ensuring database exists via sqlx (superuser)"
-sqlx database create --database-url "${DATABASE_URL}"
+log_info "Ensuring database exists"
+PGPASSWORD="${SUPERUSER_PWD}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+  -d postgres -v ON_ERROR_STOP=1 -q \
+  -c "SELECT 1 FROM pg_database WHERE datname = '${APP_DB_NAME}'" \
+  | grep -q 1 || \
+PGPASSWORD="${SUPERUSER_PWD}" createdb -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" "${APP_DB_NAME}"
 
 log_ok "Database ensured"
 
-# Create mae schema for sqlx migrations
-
+# Create schemas
 psql_super_db "${APP_DB_NAME}" "
-
 DO \$\$
 BEGIN
     IF NOT EXISTS (
-        SELECT
-            1
-        FROM
-            pg_roles
-        WHERE
-            rolname = 'app_owner') THEN
+        SELECT 1 FROM pg_roles WHERE rolname = 'app_owner') THEN
     CREATE ROLE app_owner NOLOGIN;
 END IF;
-    -- Create schema owned by app_owner
     CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION app_owner;
     CREATE SCHEMA IF NOT EXISTS mae AUTHORIZATION app_owner;
     CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION app_owner;
@@ -201,14 +173,20 @@ END
 \$\$;
 " >/dev/null 2>&1
 
-# WARN: DROPPING SQLX for MAE. cannot drop any other migration tables as they're not ours! the public ones can be reapplied without error - and SHOULD be reapplied
-# Dropping sqlx table
+# -----------------------------------------------------------------------------
+# 2) Create migration tracking table (replaces _sqlx_migrations)
+# -----------------------------------------------------------------------------
+log_info "Ensuring migration tracking table"
 psql_super_db "${APP_DB_NAME}" "
-DROP TABLE IF EXISTS mae._sqlx_migrations;
+CREATE TABLE IF NOT EXISTS mae._migrations (
+    id          SERIAL PRIMARY KEY,
+    filename    TEXT NOT NULL UNIQUE,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 " >/dev/null 2>&1
 
 # -----------------------------------------------------------------------------
-# 2) Create LOGIN roles (as SUPERUSER) - these are actual DB users
+# 3) Create LOGIN roles (as SUPERUSER)
 # -----------------------------------------------------------------------------
 log_info "Ensuring LOGIN roles exist (superuser)"
 psql_super_db "${APP_DB_NAME}" "
@@ -231,24 +209,46 @@ END
 log_ok "LOGIN roles ensured"
 
 # -----------------------------------------------------------------------------
-# 4) Run admin migrations as SUPERUSER against admin_migrations/
+# 4) Run migrations as SUPERUSER (ordered by filename, idempotent)
 # -----------------------------------------------------------------------------
-# This is where 01-05 live now (roles/functions/lockdowns).
-log_info "Running admin migrations"
-if [[ "${DEBUG:-}" == "1" ]]; then
-  sqlx migrate run --database-url "${DATABASE_URL}?options=-csearch_path%3Dmae"
-else
-  sqlx migrate run >/dev/null
-fi
+log_info "Running migrations from /workspace/migrations"
+MIGRATION_DIR="/workspace/migrations"
+
+for migration_file in $(ls "${MIGRATION_DIR}"/*.sql | sort); do
+  filename="$(basename "${migration_file}")"
+
+  # Check if already applied
+  already_applied=$(PGPASSWORD="${SUPERUSER_PWD}" psql \
+    -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+    -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -tAq \
+    -c "SELECT COUNT(1) FROM mae._migrations WHERE filename = '${filename}'")
+
+  if [[ "${already_applied}" == "1" ]]; then
+    log_info "Skipping (already applied): ${filename}"
+    continue
+  fi
+
+  log_info "Applying migration: ${filename}"
+  PGPASSWORD="${SUPERUSER_PWD}" psql \
+    -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" \
+    -d "${APP_DB_NAME}" \
+    --set=search_path=mae,app,public \
+    -v ON_ERROR_STOP=1 -q \
+    -f "${migration_file}" 1>/dev/null
+
+  # Record as applied
+  psql_super_db "${APP_DB_NAME}" \
+    "INSERT INTO mae._migrations (filename) VALUES ('${filename}') ON CONFLICT DO NOTHING;" \
+    >/dev/null 2>&1
+
+  log_ok "Applied: ${filename}"
+done
+
 log_ok "Migrations applied"
 
 # -----------------------------------------------------------------------------
 # 5) Grant runtime memberships
 # -----------------------------------------------------------------------------
-# These roles are expected to be created by admin_migrations:
-#   - app_user
-#   - table_creator
-#   - migrator_user
 log_info "Granting role memberships"
 
 psql_super_db "${APP_DB_NAME}" "
@@ -302,7 +302,6 @@ END
 \$\$;
 "
 
-## Migrator inherits app_user privileges
 psql_super_db "${APP_DB_NAME}" "
 DO \$\$
 BEGIN
@@ -320,7 +319,6 @@ END
 \$\$;
 "
 
-## Table provisioner inherits app_user privileges
 psql_super_db "${APP_DB_NAME}" "
 DO \$\$
 BEGIN
@@ -345,11 +343,10 @@ log_ok "Memberships granted"
 # -----------------------------------------------------------------------------
 log_info "Setting search_path / scope to roles ${SEARCH_PATH}"
 psql_super_db "${APP_DB_NAME}" "
-  -- Set search_path
 ALTER ROLE ${SUPERUSER} SET search_path = test, ${SEARCH_PATH}, mae, public;
-  ALTER ROLE ${MIGRATOR_USER} SET search_path = test, ${SEARCH_PATH};
-  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = test, ${SEARCH_PATH};
-  ALTER ROLE ${APP_USER} SET search_path = test, ${SEARCH_PATH};
+ALTER ROLE ${MIGRATOR_USER} SET search_path = test, ${SEARCH_PATH};
+ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = test, ${SEARCH_PATH};
+ALTER ROLE ${APP_USER} SET search_path = test, ${SEARCH_PATH};
 "
 log_ok "Search_path's set"
 

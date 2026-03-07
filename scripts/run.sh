@@ -209,3 +209,4 @@ if [[ $rc -ne 0 ]]; then
 fi
 
 log_ok "Premigration script finished"
+
