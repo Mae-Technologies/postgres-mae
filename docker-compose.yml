@@ -21,10 +21,19 @@ services:
       # PG_TEST_LOG: "1"
 
       # -----------------------------------------------------------------------------
+      # Destructive reset guard
+      # DANGER: Setting this to 'true' will permanently and irrecoverably destroy and
+      # recreate the database on critical failure. There is no undo.
+      # Do NOT set this in any deployed environment.
+      # APP_ENV no longer controls any destructive behaviour — this flag is required.
+      # -----------------------------------------------------------------------------
+      # CONFIRM_IRREVOCABLE_DATABASE_WIPE: "false"
+
+      # -----------------------------------------------------------------------------
       # Database identity / networking
       # -----------------------------------------------------------------------------
       DB_HOST: "127.0.0.1"
-      DB_PORT: "2345" # FIXME: this is counterintuitive, the pg_db port should default to 5432
+      DB_PORT: "${DB_PORT:-5432}" # Default 5432; override via environment (Issue #12/#21)
       APP_DB_NAME: "mae_test"
 
       # -----------------------------------------------------------------------------
@@ -45,4 +54,4 @@ services:
       TABLE_PROVISIONER_USER: "table_provisioner"
       TABLE_PROVISIONER_PWD: "provisioner_secret"
     ports:
-      - "2345:2345"
+      - "${DB_PORT:-5432}:${DB_PORT:-5432}"

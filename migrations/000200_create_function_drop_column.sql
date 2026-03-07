@@ -33,8 +33,11 @@ BEGIN
             RAISE EXCEPTION 'Protected column "%" cannot be dropped.', _col;
         END IF;
         EXECUTE format('ALTER TABLE %I DROP COLUMN %I', v_regclass, _col);
-        -- Optional: re-apply ACL if your apply_table_acl expects updated allowlists
-        -- (You likely have migrations controlling this, so no-op by default.)
+        -- Issue #19: sync table_migration policy — remove dropped column from
+        -- immutable_columns so stale entries do not cause trigger errors.
+        UPDATE mae._table_column_policies
+        SET immutable_columns = array_remove(immutable_columns, _col)
+        WHERE schema_name = v_schema AND table_name = v_table;
 END;
 $$;
 
