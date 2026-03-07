@@ -17,7 +17,6 @@ RUN set -eux; \
     libssl-dev \
     perl \
     postgresql-common \
-    docker.io \
   ; \
   rm -rf /var/lib/apt/lists/*
 
