@@ -163,7 +163,6 @@ fi
 # In non-test env, we aim to keep postgres running and never exit.
 should_exit=0
 
-# FIXME: I'm not a fan of exposting POSTGRES_USER and POSTGRES_PASSWORD -- if sqlx picks these up on a rouge script, it will blead into the public schema
 DATABASE_URL=postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}
 export POSTGRES_USER="${SUPERUSER}"
 export POSTGRES_PASSWORD="${SUPERUSER_PWD}"
@@ -302,7 +301,6 @@ fi
 
 log_ok "Premigration script finished"
 
-# TODO: move to it's own script
 # -----------------------------------------------------------------------------
 # pgTAP: run the suite as multiple principals (stop on first failure)
 # -----------------------------------------------------------------------------
@@ -420,7 +418,6 @@ touch /tmp/postgres_init_done
 log_ok "Sentinel file written (/tmp/postgres_init_done)"
 log "___________________________"
 
-#TODO: This should be at the bottom of the entrypoint script -> the final destination
 # -----------------------------------------------------------------------------
 # Final behavior:
 # - keep postgres running and stream logs

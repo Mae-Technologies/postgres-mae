@@ -21,7 +21,6 @@ BEGIN
         app.parse_validate_table_name (p_table_name);
     v_regclass := format('%I.%I', v_schema, v_table)::regclass;
     -- SCHEMA <-> TABLE QUALIFIED
-    -- TODO: these column values have to be validated at this point
     -- they may verywell be validated before coming into here, it requires authentication internal to the function to prevent abuse.
     INSERT INTO mae._table_column_policies (table_name, schema_name, immutable_columns)
         VALUES (v_table, v_schema, p_immutable_columns)

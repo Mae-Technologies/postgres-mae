@@ -24,7 +24,7 @@ services:
       # Database identity / networking
       # -----------------------------------------------------------------------------
       DB_HOST: "127.0.0.1"
-      DB_PORT: "2345" # FIXME: this is counterintuitive, the pg_db port should default to 5432
+      DB_PORT: "2345" # tracked: github.com/Mae-Technologies/postgres-mae/issues/21
       APP_DB_NAME: "mae_test"
 
       # -----------------------------------------------------------------------------
