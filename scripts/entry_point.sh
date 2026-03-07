@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Issue #12/#21: default DB_PORT to 5432 so callers can override via environment
+: "${DB_PORT:=5432}"
+export DB_PORT
+
 stop_postgres_bounded() {
   set +e
   echo "Stopping postgres"
