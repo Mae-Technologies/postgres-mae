@@ -14,7 +14,7 @@ BEGIN
     SELECT
         immutable_columns INTO imm
     FROM
-        app.table_column_policies
+        mae._table_column_policies
     WHERE
         table_name = TG_TABLE_NAME;
     IF imm IS NULL OR array_length(imm, 1) IS NULL THEN
