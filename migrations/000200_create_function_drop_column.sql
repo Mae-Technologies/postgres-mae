@@ -82,8 +82,6 @@ BEGIN
             END IF;
             -- Perform the DDL with identifier-quoting.
             EXECUTE format('ALTER TABLE %I RENAME COLUMN %I TO %I', v_regclass, _col, _new_col);
-            -- TODO: updating the table_migration policy is required here
-            -- TODO: check for other functions too.
             RETURN;
 END;
 $$;
