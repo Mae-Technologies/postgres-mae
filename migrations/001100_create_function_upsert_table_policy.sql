@@ -11,6 +11,7 @@ DECLARE
     v_schema name;
     v_table name;
     v_regclass regclass;
+    v_col text;
 BEGIN
     -- QUALIFYING SCHEMA <-> TABLE
     SELECT
@@ -21,8 +22,14 @@ BEGIN
         app.parse_validate_table_name (p_table_name);
     v_regclass := format('%I.%I', v_schema, v_table)::regclass;
     -- SCHEMA <-> TABLE QUALIFIED
-    -- TODO: these column values have to be validated at this point
-    -- they may verywell be validated before coming into here, it requires authentication internal to the function to prevent abuse.
+    -- Issue #18: validate each column name in p_immutable_columns to prevent injection
+    -- via malformed input. Every entry must be a valid PostgreSQL identifier.
+    FOREACH v_col IN ARRAY COALESCE(p_immutable_columns, ARRAY[]::text[]) LOOP
+        IF v_col IS NULL OR v_col !~ '^[a-zA-Z_][a-zA-Z0-9_]*$' THEN
+            RAISE EXCEPTION 'invalid column name in immutable_columns: %', v_col
+                USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
     INSERT INTO mae._table_column_policies (table_name, schema_name, immutable_columns)
         VALUES (v_table, v_schema, p_immutable_columns)
     ON CONFLICT (table_name)
