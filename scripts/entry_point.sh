@@ -120,10 +120,17 @@ FROM pg_stat_activity
 WHERE datname = :'test_db_name'
   AND pid <> pg_backend_pid();
 
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = :'mae_db_name'
+  AND pid <> pg_backend_pid();
+
 DROP DATABASE IF EXISTS :"app_db_name" CASCADE;
 DROP DATABASE IF EXISTS :"test_db_name" CASCADE;
+DROP DATABASE IF EXISTS :"mae_db_name" CASCADE;
 CREATE DATABASE :"app_db_name";
 CREATE DATABASE :"test_db_name";
+CREATE DATABASE :"mae_db_name";
 SQL
   else
     echo "[info] Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset." >&2
