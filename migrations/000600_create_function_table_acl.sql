@@ -47,6 +47,11 @@ BEGIN
     EXECUTE format('REVOKE ALL ON TABLE %s FROM %I;', v_regclass, user_role);
     -- Read access (all columns).
     EXECUTE format('GRANT SELECT ON TABLE %s TO %I;', v_regclass, user_role);
+    -- Grant DELETE so the _block_delete trigger can fire with a helpful error.
+    -- The trigger always raises an exception, so no row is ever deleted.
+    -- Without this grant, PostgreSQL rejects DELETE before the trigger runs,
+    -- giving only a generic "permission denied" message.
+    EXECUTE format('GRANT DELETE ON TABLE %s TO %I;', v_regclass, user_role);
     SELECT
         string_agg(format('%I', c), ', ') INTO insert_list
     FROM
@@ -64,6 +69,13 @@ BEGIN
     IF v_seq_name IS NOT NULL THEN
         EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO %I;', v_seq_name, user_role);
     END IF;
+    -- Attach delete-block trigger (idempotent; safe if 001300 not yet applied).
+    BEGIN
+        PERFORM app.apply_delete_guard(format('%I.%I', v_schema, v_table));
+    EXCEPTION
+        WHEN undefined_function THEN
+            NULL; -- 001300 not yet applied; trigger will be attached on next ACL re-run
+    END;
     ---------------------------------------------------------------------------
     -- Update immutable-column policy to match the applied ACL
     --
