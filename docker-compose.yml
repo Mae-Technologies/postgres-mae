@@ -1,6 +1,6 @@
 services:
   postgres_mae:
-    image: postgres-mae:v18
+    image: postgres-mae:v16
     container_name: postgres-mae
     build: .
     develop:
@@ -44,5 +44,6 @@ services:
 
       TABLE_PROVISIONER_USER: "table_provisioner"
       TABLE_PROVISIONER_PWD: "provisioner_secret"
+      SEARCH_PATH: "app"
     ports:
       - "2345:2345"
