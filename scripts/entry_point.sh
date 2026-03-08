@@ -143,8 +143,13 @@ SQL
 }
 
 # ERR trap requires errtrace to propagate through functions/subshells.
-set -E
-trap trap_run ERR
+# Issue #43: bounded postgres shutdown trap path is test-only.
+if [[ "${app_env_lc}" == "test" ]]; then
+  set -E
+  trap trap_run ERR
+else
+  log_ok "APP_ENV=${APP_ENV}; skipping test-only ERR trap wiring"
+fi
 
 # -----------------------------------------------------------------------------
 # Step 1: Start postgres + run migrations
