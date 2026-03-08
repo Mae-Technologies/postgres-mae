@@ -91,6 +91,7 @@ trap_run() {
 
   set +e
 
+  if [[ "${app_env_lc}" == "test" ]]; then
   # CONFIRM_IRREVOCABLE_DATABASE_WIPE guard:
   # Database destruction requires an explicit, intentional opt-in.
   # APP_ENV alone no longer triggers any destructive action.
@@ -135,6 +136,7 @@ SQL
   else
     echo "[info] Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset." >&2
   fi
+  fi
 
   stop_postgres_bounded
 
@@ -168,13 +170,22 @@ fi
 # Issue #17 — this block is the final step of entry_point.sh.
 # -----------------------------------------------------------------------------
 pg_pid="$(cat /tmp/pg.pid 2>/dev/null || true)"
-
 log_ok "APP_ENV=${APP_ENV}; postgres running (operational mode)"
 
-set +e
-wait "${pg_pid}"
-rc=$?
-set -e
+# Do not let operational monitor failures trigger trap_run() destructive path.
+trap - ERR
 
-log_err "Postgres exited unexpectedly (exit ${rc})"
-exit "${rc}"
+if [[ -n "${pg_pid}" ]] && [[ "${pg_pid}" =~ ^[0-9]+$ ]]; then
+# Monitor liveness without requiring child ownership.
+while kill -0 "${pg_pid}" >/dev/null 2>&1; do
+sleep 1
+done
+else
+log_warn "No valid /tmp/pg.pid found; falling back to pg_isready monitor"
+while pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" >/dev/null 2>&1; do
+sleep 1
+done
+fi
+
+log_err "Postgres exited unexpectedly (operational mode)"
+exit 1
