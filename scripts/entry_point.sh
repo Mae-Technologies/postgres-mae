@@ -136,7 +136,6 @@ SQL
   else
     echo "[info] Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset." >&2
   fi
-    exit 0
   fi
 
   stop_postgres_bounded
