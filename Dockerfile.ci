@@ -1,0 +1,11 @@
+# CI runner image — extends postgres-mae with podman for daemonless container sidecars.
+# This image is used by Concourse integration tasks; it is NOT the production postgres image.
+FROM ghcr.io/mae-technologies/postgres-mae:latest
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      podman \
+      fuse-overlayfs \
+      uidmap \
+    && rm -rf /var/lib/apt/lists/*
