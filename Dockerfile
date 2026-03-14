@@ -35,6 +35,17 @@ RUN set -eux; \
   rm -rf /var/lib/apt/lists/*
 
 # ----------------------------
+# Podman — daemonless container runtime for CI sidecars (e.g. neo4j).
+# Used by mae-integration-task to run neo4j:5 alongside postgres without DinD.
+# ----------------------------
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    podman \
+  ; \
+  rm -rf /var/lib/apt/lists/*
+
+# ----------------------------
 # Migration strategy: psql + ordered SQL files (no sqlx-cli)
 #
 # sqlx-cli has no prebuilt binaries and must be compiled from source via
