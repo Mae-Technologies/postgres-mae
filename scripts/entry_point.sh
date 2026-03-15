@@ -96,8 +96,8 @@ trap_run() {
   # Database destruction requires an explicit, intentional opt-in.
   # APP_ENV alone no longer triggers any destructive action.
   if [ "${CONFIRM_IRREVOCABLE_DATABASE_WIPE:-false}" = "true" ]; then
-    echo "⚠️  WARNING: CONFIRM_IRREVOCABLE_DATABASE_WIPE=true — database will be permanently destroyed and recreated" >&2
-    echo "    Resetting database '${APP_DB_NAME}'..." >&2
+    log_warn "CONFIRM_IRREVOCABLE_DATABASE_WIPE=true — database will be permanently destroyed and recreated"
+    log_warn "Resetting database '${APP_DB_NAME}'..."
 
     # Provide app_db_name via --set and connect to a maintenance DB (postgres),
     # because you can't drop the DB you're connected to.
@@ -134,7 +134,7 @@ CREATE DATABASE :"test_db_name";
 CREATE DATABASE :"mae_db_name";
 SQL
   else
-    echo "[info] Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset." >&2
+    log_ok "Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset."
   fi
   fi
 
