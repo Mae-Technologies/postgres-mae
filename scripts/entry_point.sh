@@ -87,7 +87,7 @@ stop_postgres_bounded() {
 
 trap_run() {
   local code=$?
-  echo "critical failure (code=${code})" >&2
+  log_err "Critical failure (code=${code})"
 
   set +e
 
@@ -96,8 +96,8 @@ trap_run() {
   # Database destruction requires an explicit, intentional opt-in.
   # APP_ENV alone no longer triggers any destructive action.
   if [ "${CONFIRM_IRREVOCABLE_DATABASE_WIPE:-false}" = "true" ]; then
-    echo "⚠️  WARNING: CONFIRM_IRREVOCABLE_DATABASE_WIPE=true — database will be permanently destroyed and recreated" >&2
-    echo "    Resetting database '${APP_DB_NAME}'..." >&2
+    log_warn "CONFIRM_IRREVOCABLE_DATABASE_WIPE=true — database will be permanently destroyed and recreated"
+    log_warn "Resetting database '${APP_DB_NAME}'..."
 
     # Provide app_db_name via --set and connect to a maintenance DB (postgres),
     # because you can't drop the DB you're connected to.
@@ -134,14 +134,19 @@ CREATE DATABASE :"test_db_name";
 CREATE DATABASE :"mae_db_name";
 SQL
   else
-    echo "[info] Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset." >&2
+    log_ok "Database wipe skipped. Set CONFIRM_IRREVOCABLE_DATABASE_WIPE=true to enable destructive reset."
   fi
   fi
 
   stop_postgres_bounded
 
-  echo "critical failure, waiting for container reload..." >&2
-  while true; do sleep 1; done
+  if [[ "${app_env_lc}" == "test" ]]; then
+    log_warn "Critical failure — waiting for container reload (test mode)"
+    while true; do sleep 1; done
+  else
+    log_err "Critical failure — exiting so container runtime can restart the pod"
+    exit 1
+  fi
 }
 
 # ERR trap requires errtrace to propagate through functions/subshells.
