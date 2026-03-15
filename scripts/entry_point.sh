@@ -87,7 +87,7 @@ stop_postgres_bounded() {
 
 trap_run() {
   local code=$?
-  echo "critical failure (code=${code})" >&2
+  log_err "Critical failure (code=${code})"
 
   set +e
 
@@ -141,10 +141,10 @@ SQL
   stop_postgres_bounded
 
   if [[ "${app_env_lc}" == "test" ]]; then
-    echo "critical failure, waiting for container reload..." >&2
+    log_warn "Critical failure — waiting for container reload (test mode)"
     while true; do sleep 1; done
   else
-    echo "critical failure, exiting so container runtime can restart the pod..." >&2
+    log_err "Critical failure — exiting so container runtime can restart the pod"
     exit 1
   fi
 }
