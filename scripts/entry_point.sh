@@ -140,8 +140,13 @@ SQL
 
   stop_postgres_bounded
 
-  echo "critical failure, waiting for container reload..." >&2
-  while true; do sleep 1; done
+  if [[ "${app_env_lc}" == "test" ]]; then
+    echo "critical failure, waiting for container reload..." >&2
+    while true; do sleep 1; done
+  else
+    echo "critical failure, exiting so container runtime can restart the pod..." >&2
+    exit 1
+  fi
 }
 
 # ERR trap requires errtrace to propagate through functions/subshells.
