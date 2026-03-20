@@ -55,7 +55,7 @@ BEGIN
     RETURN NEXT throws_like(
         format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, bounds)
                 VALUES (1, ''active'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[5,15)''::int4range);', full_table),
-        '%duplicate key value violates exclusion constraint%', 'overlapping row is rejected');
+        '%conflicting key value violates exclusion constraint%', 'overlapping row is rejected');
 
     ---------------------------------------------------------------------------
     -- 3. No-op: spec without exclusions still works and has no exclusion constraint
