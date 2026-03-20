@@ -49,12 +49,12 @@ BEGIN
     ---------------------------------------------------------------------------
     RETURN NEXT lives_ok(
         format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, bounds)
-                VALUES (1, ''ACTIVE'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[1,10)''::int4range);', full_table),
+                VALUES (1, ''active'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[1,10)''::int4range);', full_table),
         'first row inserts successfully');
 
     RETURN NEXT throws_like(
         format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, bounds)
-                VALUES (1, ''ACTIVE'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[5,15)''::int4range);', full_table),
+                VALUES (1, ''active'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[5,15)''::int4range);', full_table),
         '%duplicate key value violates exclusion constraint%', 'overlapping row is rejected');
 
     ---------------------------------------------------------------------------
