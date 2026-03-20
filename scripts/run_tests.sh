@@ -104,6 +104,7 @@ PGPASSWORD="${SUPERUSER_PWD}" psql \
   -d "${APP_DB_NAME}" -v ON_ERROR_STOP=1 -q -c "
 DROP EXTENSION IF EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA test;
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 "
 log_ok "pgTAP extension ready"
 
