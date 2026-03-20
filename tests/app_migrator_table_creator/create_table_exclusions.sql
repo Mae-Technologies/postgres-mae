@@ -25,7 +25,7 @@ BEGIN
           "name": "account_type_boundaries_no_overlap",
           "using": "GIST",
           "elements": [
-            {"column": "bounds", "op_class": "int4range_ops", "with": "&&"}
+            {"column": "bounds", "op_class": "range_ops", "with": "&&"}
           ]
         }
       ]
