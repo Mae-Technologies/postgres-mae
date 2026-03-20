@@ -30,6 +30,7 @@ DECLARE
     v_regclass regclass;
     ---------------------------------------------------------------------------
     v_cols jsonb;
+    v_exclusions jsonb;
     -- DDL assembly
     v_sql text;
     -- Per-column fields
@@ -45,6 +46,19 @@ DECLARE
     -- Rendered extra column definitions
     col_defs text := '';
     sep text := '';
+    -- Exclusion constraint assembly
+    ex jsonb;
+    ex_name text;
+    ex_using text;
+    ex_elements jsonb;
+    ex_elem jsonb;
+    ex_column text;
+    ex_op_class text;
+    ex_with text;
+    ex_where text;
+    ex_sql text;
+    ex_elem_sql text;
+    ex_sep text;
     -- Columns from spec, used to auto-apply ACL.
     -- By default we treat all spec-defined columns as insertable+updatable.
     insertable_extras text[] := ARRAY[]::text[];
@@ -160,6 +174,101 @@ BEGIN
     FROM
         app.parse_validate_table_name (p_spec ->> 'table_name');
     v_regclass := format('%I.%I', v_schema, v_table)::regclass;
+    ---------------------------------------------------------------------------
+    -- 3.1) Optional EXCLUSION constraints from spec.exclusions
+    ---------------------------------------------------------------------------
+    v_exclusions := p_spec -> 'exclusions';
+    IF v_exclusions IS NOT NULL THEN
+        IF jsonb_typeof(v_exclusions) <> 'array' THEN
+            RAISE EXCEPTION 'spec.exclusions must be an array when provided';
+        END IF;
+
+        FOR ex IN
+        SELECT
+            value
+        FROM
+            jsonb_array_elements(v_exclusions) AS t (value)
+            LOOP
+                IF jsonb_typeof(ex) <> 'object' THEN
+                    RAISE EXCEPTION 'each item in spec.exclusions must be an object';
+                END IF;
+
+                ex_name := ex ->> 'name';
+                ex_using := ex ->> 'using';
+                ex_elements := ex -> 'elements';
+                ex_where := ex ->> 'where';
+
+                IF ex_name IS NULL OR ex_using IS NULL OR ex_elements IS NULL THEN
+                    RAISE EXCEPTION 'each exclusion requires "name", "using", and "elements"';
+                END IF;
+
+                IF ex_name !~ '^[a-zA-Z_][a-zA-Z0-9_]*$' THEN
+                    RAISE EXCEPTION 'invalid exclusion name: %', ex_name;
+                END IF;
+
+                IF upper(ex_using) NOT IN ('GIST', 'SPGIST') THEN
+                    RAISE EXCEPTION 'invalid exclusion using method: %', ex_using;
+                END IF;
+
+                IF jsonb_typeof(ex_elements) <> 'array' OR jsonb_array_length(ex_elements) = 0 THEN
+                    RAISE EXCEPTION 'exclusion elements must be a non-empty array';
+                END IF;
+
+                ex_elem_sql := '';
+                ex_sep := '';
+
+                FOR ex_elem IN
+                SELECT
+                    value
+                FROM
+                    jsonb_array_elements(ex_elements) AS t2 (value)
+                    LOOP
+                        IF jsonb_typeof(ex_elem) <> 'object' THEN
+                            RAISE EXCEPTION 'each exclusion element must be an object';
+                        END IF;
+
+                        ex_column := ex_elem ->> 'column';
+                        ex_op_class := ex_elem ->> 'op_class';
+                        ex_with := ex_elem ->> 'with';
+
+                        IF ex_column IS NULL OR ex_op_class IS NULL OR ex_with IS NULL THEN
+                            RAISE EXCEPTION 'each exclusion element requires "column", "op_class", and "with"';
+                        END IF;
+
+                        IF ex_column NOT IN (
+                            SELECT unnest(insertable_extras)
+                            UNION ALL
+                            SELECT unnest(ARRAY['id','sys_client','status','comment','tags','sys_detail','created_by','updated_by','created_at','updated_at'])
+                        ) THEN
+                            RAISE EXCEPTION 'exclusion column not found in table: %', ex_column;
+                        END IF;
+
+                        IF ex_op_class NOT IN ('int4_ops','range_ops','text_ops','bool_ops') THEN
+                            RAISE EXCEPTION 'invalid exclusion op_class: %', ex_op_class;
+                        END IF;
+
+                        IF ex_with NOT IN ('=','&&','<<','>>','-|-') THEN
+                            RAISE EXCEPTION 'invalid exclusion operator: %', ex_with;
+                        END IF;
+
+                        ex_elem_sql := ex_elem_sql || ex_sep || format('%I %s WITH %s', ex_column, ex_op_class, ex_with);
+                        ex_sep := ', ';
+                    END LOOP;
+
+                ex_sql := format('ALTER TABLE %s ADD CONSTRAINT %I EXCLUDE USING %s (%s', v_regclass::text, ex_name, upper(ex_using), ex_elem_sql);
+
+                IF ex_where IS NOT NULL THEN
+                    IF ex_where !~ '^[a-zA-Z0-9_\. ''()<>!=]*$' THEN
+                        RAISE EXCEPTION 'invalid characters in exclusion WHERE predicate';
+                    END IF;
+                    ex_sql := ex_sql || format(') WHERE (%s)', ex_where);
+                ELSE
+                    ex_sql := ex_sql || ')';
+                END IF;
+
+                EXECUTE ex_sql;
+            END LOOP;
+    END IF;
     ---------------------------------------------------------------------------
     -- 4) Attach audit trigger (id/sys_client/created_* immutable; updated_at maintained)
     ---------------------------------------------------------------------------
