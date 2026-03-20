@@ -18,18 +18,14 @@ BEGIN
     PERFORM app.create_table_from_spec(format('{
       "table_name": "test.%s",
       "columns": [
-        {"name": "parent", "type": "int4"},
-        {"name": "lower_boundary", "type": "int4"},
-        {"name": "upper_boundary", "type": "int4"}
+        {"name": "bounds", "type": "int4range"}
       ],
       "exclusions": [
         {
           "name": "account_type_boundaries_no_overlap",
           "using": "GIST",
           "elements": [
-            {"column": "parent", "op_class": "int4_ops", "with": "="},
-            {"column": "lower_boundary", "op_class": "int4_ops", "with": "&&"},
-            {"column": "upper_boundary", "op_class": "int4_ops", "with": "&&"}
+            {"column": "bounds", "op_class": "int4range_ops", "with": "&&"}
           ]
         }
       ]
@@ -52,14 +48,14 @@ BEGIN
     -- 2. Constraint is functional: overlapping rows rejected
     ---------------------------------------------------------------------------
     RETURN NEXT lives_ok(
-        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, parent, lower_boundary, upper_boundary)
-                VALUES (1, ''ACTIVE'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, 1, 1, 10);', full_table),
+        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, bounds)
+                VALUES (1, ''ACTIVE'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[1,10)''::int4range);', full_table),
         'first row inserts successfully');
 
     RETURN NEXT throws_like(
-        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, parent, lower_boundary, upper_boundary)
-                VALUES (1, ''ACTIVE'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, 1, 5, 15);', full_table),
-        '%duplicate key value violates exclusion constraint%','overlapping row is rejected');
+        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, bounds)
+                VALUES (1, ''ACTIVE'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''[5,15)''::int4range);', full_table),
+        '%duplicate key value violates exclusion constraint%', 'overlapping row is rejected');
 
     ---------------------------------------------------------------------------
     -- 3. No-op: spec without exclusions still works and has no exclusion constraint
