@@ -90,7 +90,7 @@ BEGIN
     -- 4. Invalid using method
     ---------------------------------------------------------------------------
     RETURN NEXT throws_like(
-        $$SELECT app.create_table_from_spec('{
+        $sql$SELECT app.create_table_from_spec('{
           "table_name": "test.excl_invalid_using",
           "columns": [
             {"name": "value", "type": "int4"}
@@ -100,7 +100,7 @@ BEGIN
               {"column": "value", "op_class": "int4_ops", "with": "="}
             ]}
           ]
-        }'::jsonb);$$,
+        }'::jsonb);$sql$,
         '%invalid exclusion using method%',
         'invalid using method is rejected');
 
@@ -108,7 +108,7 @@ BEGIN
     -- 5. Unknown op_class
     ---------------------------------------------------------------------------
     RETURN NEXT throws_like(
-        $$SELECT app.create_table_from_spec('{
+        $sql$SELECT app.create_table_from_spec('{
           "table_name": "test.excl_invalid_opclass",
           "columns": [
             {"name": "value", "type": "int4"}
@@ -118,7 +118,7 @@ BEGIN
               {"column": "value", "op_class": "unknown_ops", "with": "="}
             ]}
           ]
-        }'::jsonb);$$,
+        }'::jsonb);$sql$,
         '%invalid exclusion op_class%',
         'unknown op_class is rejected');
 
@@ -126,7 +126,7 @@ BEGIN
     -- 6. Column not in table
     ---------------------------------------------------------------------------
     RETURN NEXT throws_like(
-        $$SELECT app.create_table_from_spec('{
+        $sql$SELECT app.create_table_from_spec('{
           "table_name": "test.excl_invalid_column",
           "columns": [
             {"name": "value", "type": "int4"}
@@ -136,7 +136,7 @@ BEGIN
               {"column": "missing_col", "op_class": "int4_ops", "with": "="}
             ]}
           ]
-        }'::jsonb);$$,
+        }'::jsonb);$sql$,
         '%exclusion column not found in table%',
         'unknown column in exclusion is rejected');
 
@@ -144,7 +144,7 @@ BEGIN
     -- 7. Empty elements array
     ---------------------------------------------------------------------------
     RETURN NEXT throws_like(
-        $$SELECT app.create_table_from_spec('{
+        $sql$SELECT app.create_table_from_spec('{
           "table_name": "test.excl_empty_elements",
           "columns": [
             {"name": "value", "type": "int4"}
@@ -152,7 +152,7 @@ BEGIN
           "exclusions": [
             {"name": "excl_empty", "using": "GIST", "elements": []}
           ]
-        }'::jsonb);$$,
+        }'::jsonb);$sql$,
         '%exclusion elements must be a non-empty array%',
         'empty elements array is rejected');
 
