@@ -29,7 +29,7 @@ BEGIN
             pg_event_trigger_ddl_commands () c
         WHERE
         -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
-        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%') THEN
+        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%' OR c.object_identity LIKE '_sqlx_migrations%') THEN
         RETURN;
     END IF;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
