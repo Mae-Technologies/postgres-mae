@@ -343,10 +343,10 @@ log_ok "Memberships granted"
 # -----------------------------------------------------------------------------
 log_info "Setting search_path / scope to roles ${SEARCH_PATH}"
 psql_super_db "${APP_DB_NAME}" "
-ALTER ROLE ${SUPERUSER} SET search_path = test, ${SEARCH_PATH}, mae, public;
-ALTER ROLE ${MIGRATOR_USER} SET search_path = test, ${SEARCH_PATH};
-ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = test, ${SEARCH_PATH};
-ALTER ROLE ${APP_USER} SET search_path = test, ${SEARCH_PATH};
+ALTER ROLE ${SUPERUSER} SET search_path = ${SEARCH_PATH}, mae, test, public;
+ALTER ROLE ${MIGRATOR_USER} SET search_path = ${SEARCH_PATH}, mae;
+ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = ${SEARCH_PATH}, mae;
+ALTER ROLE ${APP_USER} SET search_path = ${SEARCH_PATH};
 "
 log_ok "Search_path's set"
 
