@@ -56,6 +56,17 @@ BEGIN
     IF TG_TAG IN ('DROP TABLE', 'DROP SEQUENCE') THEN
         RAISE EXCEPTION 'DDL "%": not allowed for role "%". query: "%". DROPPING DATA DEFINITIONS IS NOT ALLOWED.', TG_TAG, invoker_role, q;
     END IF;
+
+    -- Allow migrator roles to ALTER TABLE on app.* (e.g. column type changes)
+    IF (pg_has_role(invoker_role, 'app_migrator', 'member') OR pg_has_role(invoker_role, 'db_migrator', 'member'))
+       AND TG_TAG = 'ALTER TABLE'
+       AND EXISTS (
+           SELECT 1 FROM pg_event_trigger_ddl_commands() c
+           WHERE c.object_identity LIKE 'app.%'
+       ) THEN
+        RETURN;
+    END IF;
+
     -- Handle ALTER TABLE separately
     IF TG_TAG = 'ALTER TABLE' THEN
         RAISE EXCEPTION 'DDL "%": not allowed for role "%". query: "%". Altering Tables use drop_column/rename_column.', TG_TAG, invoker_role, q;
@@ -82,4 +93,3 @@ $$;
 
 CREATE EVENT TRIGGER trg_block_disallowed_ddl ON ddl_command_end
     EXECUTE FUNCTION mae._block_disallowed_ddl ();
-
