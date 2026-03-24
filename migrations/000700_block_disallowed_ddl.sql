@@ -41,7 +41,7 @@ BEGIN
               AND (cmd.schema_name IS NULL OR cmd.schema_name IN ('app', 'test', 'public'))
         )
     THEN
-        FOR c IN
+        FOR cmd IN
             SELECT
                 classid,
                 objid,
