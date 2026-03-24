@@ -160,7 +160,7 @@ log_ok "Database ensured"
 
 # Create schemas
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_roles WHERE rolname = 'app_owner') THEN
@@ -170,7 +170,7 @@ END IF;
     CREATE SCHEMA IF NOT EXISTS mae AUTHORIZATION app_owner;
     CREATE SCHEMA IF NOT EXISTS test AUTHORIZATION app_owner;
 END
-\$\$;
+$$;
 " >/dev/null 2>&1
 
 # -----------------------------------------------------------------------------
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS mae._migrations (
 # -----------------------------------------------------------------------------
 log_info "Ensuring LOGIN roles exist (superuser)"
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_USER}') THEN
     CREATE ROLE ${APP_USER} LOGIN PASSWORD '${APP_USER_PWD}';
@@ -204,7 +204,7 @@ BEGIN
     CREATE ROLE ${TABLE_PROVISIONER_USER} LOGIN PASSWORD '${TABLE_PROVISIONER_PWD}';
   END IF;
 END
-\$\$;
+$$;
 "
 log_ok "LOGIN roles ensured"
 
@@ -252,7 +252,7 @@ log_ok "Migrations applied"
 log_info "Granting role memberships"
 
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -265,11 +265,11 @@ BEGIN
     EXECUTE format('GRANT %I TO %I', 'app_user', '${APP_USER}');
   END IF;
 END
-\$\$;
+$$;
 "
 
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -282,11 +282,11 @@ BEGIN
     EXECUTE format('GRANT %I TO %I', 'table_creator', '${TABLE_PROVISIONER_USER}');
   END IF;
 END
-\$\$;
+$$;
 "
 
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -299,11 +299,11 @@ BEGIN
     EXECUTE format('GRANT %I TO %I', 'app_migrator', '${MIGRATOR_USER}');
   END IF;
 END
-\$\$;
+$$;
 "
 
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -316,11 +316,11 @@ BEGIN
     EXECUTE format('GRANT %I TO %I', 'app_user', '${MIGRATOR_USER}');
   END IF;
 END
-\$\$;
+$$;
 "
 
 psql_super_db "${APP_DB_NAME}" "
-DO \$\$
+DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -333,10 +333,29 @@ BEGIN
     EXECUTE format('GRANT %I TO %I', 'app_user', '${TABLE_PROVISIONER_USER}');
   END IF;
 END
-\$\$;
+$$;
 "
 
 log_ok "Memberships granted"
+
+# Ensure db_migrator has a writable app schema and stable search_path for SQLx migrations
+psql_super_db "${APP_DB_NAME}" "
+DO $$
+BEGIN
+    -- Create app schema if it does not exist yet. Ownership stays with app_owner.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_namespace WHERE nspname = 'app'
+    ) THEN
+        CREATE SCHEMA app AUTHORIZATION app_owner;
+    END IF;
+    -- Only apply grants / search_path tweaks when db_migrator exists.
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'db_migrator') THEN
+        GRANT USAGE, CREATE ON SCHEMA app TO db_migrator;
+        EXECUTE 'ALTER ROLE db_migrator SET search_path = app, public';
+    END IF;
+END
+$$;
+"
 
 # -----------------------------------------------------------------------------
 # 6) Set scopes / search_path to roles
