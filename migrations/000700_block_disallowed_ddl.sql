@@ -36,9 +36,9 @@ BEGIN
        AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
        AND EXISTS (
             SELECT 1
-            FROM pg_event_trigger_ddl_commands() c
-            WHERE c.object_identity ~ '(^|[.])_sqlx_migrations$'
-              AND (c.schema_name IS NULL OR c.schema_name IN ('app', 'test', 'public'))
+            FROM pg_event_trigger_ddl_commands() cmd
+            WHERE cmd.object_identity ~ '(^|[.])_sqlx_migrations$'
+              AND (cmd.schema_name IS NULL OR cmd.schema_name IN ('app', 'test', 'public'))
         )
     THEN
         FOR c IN
