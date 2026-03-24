@@ -210,3 +210,4 @@ fi
 
 log_ok "Premigration script finished"
 
+touch /tmp/postgres_init_done
