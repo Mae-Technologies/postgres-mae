@@ -21,8 +21,12 @@ BEGIN
     IF effective_role IN ('app_owner', 'postgres') THEN
         RETURN;
     END IF;
-    -- Allow SQLx bookkeeping DDL for migrator role membership (robust: uses object identity)
-    IF pg_has_role(invoker_role, 'app_migrator', 'member') AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX') AND EXISTS (
+    -- Allow SQLx bookkeeping DDL for any recognised migrator role (robust: uses object identity).
+    -- app_migrator: internal mae migrations.
+    -- db_migrator:  service-level role used by ru_api_service and similar consumers.
+    --               db_migrator is intentionally NOT a member of app_migrator (separate role hierarchy),
+    --               so it must be listed explicitly here.
+    IF (pg_has_role(invoker_role, 'app_migrator', 'member') OR pg_has_role(invoker_role, 'db_migrator', 'member')) AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX') AND EXISTS (
         SELECT
             1
         FROM
