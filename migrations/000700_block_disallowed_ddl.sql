@@ -26,14 +26,20 @@ BEGIN
     -- db_migrator:  service-level role used by ru_api_service and similar consumers.
     --               db_migrator is intentionally NOT a member of app_migrator (separate role hierarchy),
     --               so it must be listed explicitly here.
-    IF (pg_has_role(invoker_role, 'app_migrator', 'member') OR pg_has_role(invoker_role, 'db_migrator', 'member')) AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX') AND EXISTS (
+    --
+    -- Also allow when the effective_role itself is the migrator (compose restart cases).
+    IF (pg_has_role(invoker_role, 'app_migrator', 'member')
+        OR pg_has_role(invoker_role, 'db_migrator', 'member')
+        OR effective_role IN ('db_migrator', 'app_migrator'))
+       AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
+       AND EXISTS (
         SELECT
             1
         FROM
             pg_event_trigger_ddl_commands () c
         WHERE
         -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
-        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%' OR c.object_identity LIKE '_sqlx_migrations%') THEN
+        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%' OR c.object_identity LIKE '_sqlx_migrations') THEN
         RETURN;
     END IF;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
@@ -82,4 +88,3 @@ $$;
 
 CREATE EVENT TRIGGER trg_block_disallowed_ddl ON ddl_command_end
     EXECUTE FUNCTION mae._block_disallowed_ddl ();
-
