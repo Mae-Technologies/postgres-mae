@@ -43,8 +43,28 @@ BEGIN
     DECLARE
         c record;
     BEGIN
-        FOR c IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
-            RAISE NOTICE '%', row_to_json(c);
+        FOR c IN
+            SELECT
+                classid,
+                objid,
+                objsubid,
+                command_tag,
+                object_type,
+                schema_name,
+                object_identity,
+                in_extension
+            FROM pg_event_trigger_ddl_commands()
+        LOOP
+            RAISE NOTICE
+                'classid=%, objid=%, objsubid=%, tag=%, type=%, schema=%, identity=%, in_extension=%',
+                c.classid,
+                c.objid,
+                c.objsubid,
+                c.command_tag,
+                c.object_type,
+                c.schema_name,
+                c.object_identity,
+                c.in_extension;
         END LOOP;
     END;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
