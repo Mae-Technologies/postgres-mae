@@ -44,7 +44,7 @@ BEGIN
             in_extension
         FROM pg_event_trigger_ddl_commands()
     LOOP
-        RAISE NOTICE
+        RAISE WARNING
             'classid=%, objid=%, objsubid=%, tag=%, type=%, schema=%, identity=%, in_extension=%',
             cmd_rec.classid,
             cmd_rec.objid,
