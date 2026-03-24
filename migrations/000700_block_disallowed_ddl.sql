@@ -30,7 +30,6 @@ BEGIN
     --               so it must be listed explicitly here.
     --
     -- Also allow when the effective_role itself is the migrator (compose restart cases).
-BEGIN
     IF (pg_has_role(invoker_role, 'app_migrator', 'member')
         OR pg_has_role(invoker_role, 'db_migrator', 'member')
         OR effective_role IN ('db_migrator', 'app_migrator'))
