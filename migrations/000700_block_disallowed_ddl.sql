@@ -30,34 +30,31 @@ BEGIN
             WHERE cmd.object_identity ~ '(^|[.])_sqlx_migrations$'
               AND (cmd.schema_name IS NULL OR cmd.schema_name IN ('app', 'test', 'public'))
         )
-    THEN
-        FOR cmd_rec IN
-            SELECT
-                classid,
-                objid,
-                objsubid,
-                command_tag,
-                object_type,
-                schema_name,
-                object_identity,
-                in_extension
-            FROM pg_event_trigger_ddl_commands()
-        LOOP
-            RAISE NOTICE
-                'classid=%, objid=%, objsubid=%, tag=%, type=%, schema=%, identity=%, in_extension=%',
-                cmd_rec.classid,
-                cmd_rec.objid,
-                cmd_rec.objsubid,
-                cmd_rec.command_tag,
-                cmd_rec.object_type,
-                cmd_rec.schema_name,
-                cmd_rec.object_identity,
-                cmd_rec.in_extension;
-        END LOOP;
-
-        RETURN;
+    THEN RETURN;
     END IF;
-
+    FOR cmd_rec IN
+        SELECT
+            classid,
+            objid,
+            objsubid,
+            command_tag,
+            object_type,
+            schema_name,
+            object_identity,
+            in_extension
+        FROM pg_event_trigger_ddl_commands()
+    LOOP
+        RAISE NOTICE
+            'classid=%, objid=%, objsubid=%, tag=%, type=%, schema=%, identity=%, in_extension=%',
+            cmd_rec.classid,
+            cmd_rec.objid,
+            cmd_rec.objsubid,
+            cmd_rec.command_tag,
+            cmd_rec.object_type,
+            cmd_rec.schema_name,
+            cmd_rec.object_identity,
+            cmd_rec.in_extension;
+    END LOOP;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
     IF TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE', 'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX') AND EXISTS (
         SELECT
