@@ -10,38 +10,28 @@ CREATE FUNCTION mae._block_disallowed_ddl ()
     AS $$
 DECLARE
     effective_role text := CURRENT_USER;
-    -- definer/effective
     invoker_role text := SESSION_USER;
-    -- original login
     q text := current_query();
-    -- sql query
-    c record;
+    cmd_rec record;
     protected_cols text[] := ARRAY['id', 'sys_client', 'created_at', 'created_by', 'updated_at', 'updated_by', 'status', 'sys_detail', 'tags'];
     col text;
 BEGIN
-    -- Allow if the effective role is privileged (SECURITY DEFINER => app_owner)
     IF effective_role IN ('app_owner', 'postgres') THEN
         RETURN;
     END IF;
-    -- Allow SQLx bookkeeping DDL for any recognised migrator role (robust: uses object identity).
-    -- app_migrator: internal mae migrations.
-    -- db_migrator:  service-level role used by ru_api_service and similar consumers.
-    --               db_migrator is intentionally NOT a member of app_migrator (separate role hierarchy),
-    --               so it must be listed explicitly here.
-    --
-    -- Also allow when the effective_role itself is the migrator (compose restart cases).
+
     IF (pg_has_role(invoker_role, 'app_migrator', 'member')
         OR pg_has_role(invoker_role, 'db_migrator', 'member')
         OR effective_role IN ('db_migrator', 'app_migrator'))
        AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
        AND EXISTS (
             SELECT 1
-            FROM pg_event_trigger_ddl_commands() cmd
+            FROM pg_event_trigger_ddl_commands() AS cmd
             WHERE cmd.object_identity ~ '(^|[.])_sqlx_migrations$'
               AND (cmd.schema_name IS NULL OR cmd.schema_name IN ('app', 'test', 'public'))
         )
     THEN
-        FOR cmd IN
+        FOR cmd_rec IN
             SELECT
                 classid,
                 objid,
@@ -55,14 +45,14 @@ BEGIN
         LOOP
             RAISE NOTICE
                 'classid=%, objid=%, objsubid=%, tag=%, type=%, schema=%, identity=%, in_extension=%',
-                c.classid,
-                c.objid,
-                c.objsubid,
-                c.command_tag,
-                c.object_type,
-                c.schema_name,
-                c.object_identity,
-                c.in_extension;
+                cmd_rec.classid,
+                cmd_rec.objid,
+                cmd_rec.objsubid,
+                cmd_rec.command_tag,
+                cmd_rec.object_type,
+                cmd_rec.schema_name,
+                cmd_rec.object_identity,
+                cmd_rec.in_extension;
         END LOOP;
 
         RETURN;
