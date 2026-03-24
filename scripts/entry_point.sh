@@ -154,6 +154,23 @@ set -E
 trap trap_run ERR
 
 # -----------------------------------------------------------------------------
+# Graceful shutdown on SIGINT/SIGTERM
+#
+# docker-compose down / Ctrl+C should stop postgres and exit cleanly instead of
+# leaving the container stuck in a wait-loop. We install explicit INT/TERM
+# handlers that bypass the destructive error trap and just stop postgres.
+# -----------------------------------------------------------------------------
+handle_signal() {
+  log_warn "Received termination signal \\u2014 stopping postgres and exiting cleanly"
+  # Avoid invoking trap_run() from this path; we just want a bounded shutdown.
+  trap - ERR
+  stop_postgres_bounded
+  exit 0
+}
+
+trap handle_signal INT TERM
+
+# -----------------------------------------------------------------------------
 # Step 1: Start postgres + run migrations
 # -----------------------------------------------------------------------------
 /workspace/scripts/run.sh
