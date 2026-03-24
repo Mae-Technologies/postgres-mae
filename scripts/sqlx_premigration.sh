@@ -336,22 +336,6 @@ END
 \$\$;
 "
 
--- Grant EXECUTE on elevated DDL helper functions to login roles
-psql_super_db "${APP_DB_NAME}" "
-DO \$\$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE p.proname = 'alter_column_type' AND n.nspname = 'app'
-    ) THEN
-        EXECUTE format('GRANT EXECUTE ON FUNCTION app.alter_column_type(text, text, text) TO %I', '${TABLE_PROVISIONER_USER}');
-        EXECUTE format('GRANT EXECUTE ON FUNCTION app.alter_column_type(text, text, text) TO %I', '${MIGRATOR_USER}');
-    END IF;
-END
-\$\$;
-"
-
 log_ok "Memberships granted"
 
 # -----------------------------------------------------------------------------
