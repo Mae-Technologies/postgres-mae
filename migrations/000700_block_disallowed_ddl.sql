@@ -14,6 +14,8 @@ DECLARE
     invoker_role text := SESSION_USER;
     -- original login
     q text := current_query();
+    -- sql query
+    c record;
     protected_cols text[] := ARRAY['id', 'sys_client', 'created_at', 'created_by', 'updated_at', 'updated_by', 'status', 'sys_detail', 'tags'];
     col text;
 BEGIN
@@ -28,6 +30,7 @@ BEGIN
     --               so it must be listed explicitly here.
     --
     -- Also allow when the effective_role itself is the migrator (compose restart cases).
+BEGIN
     IF (pg_has_role(invoker_role, 'app_migrator', 'member')
         OR pg_has_role(invoker_role, 'db_migrator', 'member')
         OR effective_role IN ('db_migrator', 'app_migrator'))
@@ -37,12 +40,8 @@ BEGIN
             FROM pg_event_trigger_ddl_commands() c
             WHERE c.object_identity ~ '(^|[.])_sqlx_migrations$'
               AND (c.schema_name IS NULL OR c.schema_name IN ('app', 'test', 'public'))
-        ) THEN
-        RETURN;
-    END IF;
-    DECLARE
-        c record;
-    BEGIN
+        )
+    THEN
         FOR c IN
             SELECT
                 classid,
@@ -66,7 +65,10 @@ BEGIN
                 c.object_identity,
                 c.in_extension;
         END LOOP;
-    END;
+
+        RETURN;
+    END IF;
+
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
     IF TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE', 'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX') AND EXISTS (
         SELECT
