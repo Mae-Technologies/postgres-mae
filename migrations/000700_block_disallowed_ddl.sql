@@ -40,13 +40,13 @@ BEGIN
         ) THEN
         RETURN;
     END IF;
-    FOR c IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
-        RAISE LOG 'tag=%, schema=%, identity=%, type=%',
-            c.command_tag,
-            c.schema_name,
-            c.object_identity,
-            c.object_type;
-    END LOOP;
+    DECLARE
+        c record;
+    BEGIN
+        FOR c IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+            RAISE NOTICE '%', row_to_json(c);
+        END LOOP;
+    END;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
     IF TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE', 'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX') AND EXISTS (
         SELECT
