@@ -74,3 +74,4 @@ ALTER FUNCTION app.alter_column_type (text, text, text) OWNER TO app_owner;
 
 REVOKE ALL ON FUNCTION app.alter_column_type (text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.alter_column_type (text, text, text) TO db_migrator;
+GRANT EXECUTE ON FUNCTION app.alter_column_type (text, text, text) TO table_creator;
