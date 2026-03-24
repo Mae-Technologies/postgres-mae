@@ -33,20 +33,15 @@ BEGIN
         OR effective_role IN ('db_migrator', 'app_migrator'))
        AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
        AND EXISTS (
-            SELECT 1
-            FROM pg_event_trigger_ddl_commands() c
-            WHERE c.object_identity ~ '(^|[.])_sqlx_migrations$'
-              AND (c.schema_name IS NULL OR c.schema_name IN ('app', 'test', 'public'))
-        ) THEN
+        SELECT
+            1
+        FROM
+            pg_event_trigger_ddl_commands () c
+        WHERE
+        -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
+        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%' OR c.object_identity LIKE '_sqlx_migrations') THEN
         RETURN;
     END IF;
-    FOR c IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
-        RAISE LOG 'tag=%, schema=%, identity=%, type=%',
-            c.command_tag,
-            c.schema_name,
-            c.object_identity,
-            c.object_type;
-    END LOOP;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
     IF TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE', 'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX') AND EXISTS (
         SELECT
