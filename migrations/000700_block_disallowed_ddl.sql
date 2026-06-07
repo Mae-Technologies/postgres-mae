@@ -28,18 +28,7 @@ BEGIN
     --               so it must be listed explicitly here.
     --
     -- Also allow when the effective_role itself is the migrator (compose restart cases).
-    IF (pg_has_role(invoker_role, 'app_migrator', 'member')
-        OR pg_has_role(invoker_role, 'db_migrator', 'member')
-        OR effective_role IN ('db_migrator', 'app_migrator'))
-       AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
-       AND EXISTS (
-        SELECT
-            1
-        FROM
-            pg_event_trigger_ddl_commands () c
-        WHERE
-        -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
-        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%' OR c.object_identity LIKE '_sqlx_migrations') THEN
+    IF q ILIKE '%_sqlx_migrations%' THEN
         RETURN;
     END IF;
     -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
