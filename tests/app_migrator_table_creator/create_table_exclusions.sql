@@ -6,7 +6,7 @@ DECLARE
     tname text;
     full_table text;
 BEGIN
-    RETURN NEXT plan(10);
+    RETURN NEXT plan(16);
 
     -- Generate a random table name in test schema
     SELECT 'tmp_excl_' || substring(md5(gen_random_uuid()::text), 1, 8) INTO tname;
@@ -151,6 +151,75 @@ BEGIN
         }'::jsonb);$sql$,
         '%exclusion elements must be a non-empty array%',
         'empty elements array is rejected');
+
+    ---------------------------------------------------------------------------
+    -- 8. btree_gist extension is available for scalar GIST exclusions
+    ---------------------------------------------------------------------------
+    RETURN NEXT ok(EXISTS (
+        SELECT 1 FROM pg_extension WHERE extname = 'btree_gist'
+    ), 'btree_gist extension is installed');
+
+    ---------------------------------------------------------------------------
+    -- 9–12. Partial unique on scalar columns via gist_int4_ops / gist_text_ops
+    ---------------------------------------------------------------------------
+    SELECT 'tmp_excl_' || substring(md5(gen_random_uuid()::text), 1, 8) INTO tname;
+    full_table := format('test.%I', tname);
+
+    PERFORM app.create_table_from_spec(format('{
+      "table_name": "test.%s",
+      "columns": [
+        {"name": "label", "type": "TEXT", "nullable": false}
+      ],
+      "exclusions": [
+        {
+          "name": "scalar_partial_unique",
+          "using": "GIST",
+          "where": "status <> ''deleted''",
+          "elements": [
+            {"column": "sys_client", "op_class": "gist_int4_ops", "with": "="},
+            {"column": "label", "op_class": "gist_text_ops", "with": "="}
+          ]
+        }
+      ]
+    }', tname)::jsonb);
+
+    RETURN NEXT ok(EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class r ON r.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = r.relnamespace
+        WHERE c.contype = 'x'
+          AND c.conname = 'scalar_partial_unique'
+          AND n.nspname = 'test'
+          AND r.relname = tname
+    ), 'gist scalar partial unique constraint created at table creation');
+
+    RETURN NEXT lives_ok(
+        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, label)
+                VALUES (1, ''active'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''alpha'');', full_table),
+        'first active scalar row inserts successfully');
+
+    RETURN NEXT throws_like(
+        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, label)
+                VALUES (1, ''active'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''alpha'');', full_table),
+        '%conflicting key value violates exclusion constraint%',
+        'duplicate active scalar row is rejected');
+
+    RETURN NEXT lives_ok(
+        format(
+            'INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, label)
+             VALUES (1, %L, NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, %L);',
+            full_table,
+            'deleted',
+            'alpha'
+        ),
+        'deleted row may coexist with active row sharing the same key');
+
+    RETURN NEXT throws_like(
+        format('INSERT INTO %s (sys_client, status, comment, tags, sys_detail, created_by, updated_by, label)
+                VALUES (1, ''active'', NULL, ''{}''::jsonb, ''{}''::jsonb, 1, 1, ''alpha'');', full_table),
+        '%conflicting key value violates exclusion constraint%',
+        'second active row with same key is still rejected while first remains active');
 
     RETURN QUERY SELECT * FROM finish();
 END;

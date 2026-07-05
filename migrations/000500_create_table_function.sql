@@ -249,7 +249,10 @@ BEGIN
                             RAISE EXCEPTION 'exclusion column not found in table: %', ex_column;
                         END IF;
 
-                        IF ex_op_class NOT IN ('int4_ops','range_ops','text_ops','bool_ops') THEN
+                        IF ex_op_class NOT IN (
+                            'int4_ops', 'range_ops', 'text_ops', 'bool_ops',
+                            'gist_int4_ops', 'gist_text_ops'
+                        ) THEN
                             RAISE EXCEPTION 'invalid exclusion op_class: %', ex_op_class;
                         END IF;
 
