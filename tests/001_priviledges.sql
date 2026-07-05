@@ -77,7 +77,7 @@ SELECT
             'app_owner',
             'app.apply_table_acl owned by app_owner');
 SELECT
-    ok (NOT has_function_privilege('public', 'app.apply_table_acl(text, text[], text[])', 'EXECUTE'),
+    ok (NOT has_function_privilege('public', 'app.apply_table_acl(text, text[], text[], boolean)', 'EXECUTE'),
         'PUBLIC cannot EXECUTE app.apply_table_acl');
 -- app.create_table_from_spec(jsonb)
 SELECT
@@ -92,7 +92,7 @@ SELECT
             'app_owner',
             'app.create_table_from_spec owned by app_owner');
 SELECT
-    ok (NOT has_function_privilege('public', 'app.create_table_from_spec(jsonb)', 'EXECUTE'),
+    ok (NOT has_function_privilege('public', 'app.create_table_from_spec(jsonb, boolean)', 'EXECUTE'),
         'PUBLIC cannot EXECUTE create_table_from_spec');
 -- app.audit_enforce_timestamps_and_immutables()
 SELECT

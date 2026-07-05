@@ -45,28 +45,28 @@ GRANT EXECUTE ON FUNCTION app.parse_validate_table_name (text, boolean) TO table
 ALTER FUNCTION app.parse_validate_table_name (text, boolean) OWNER TO app_owner;
 
 -- Lock down execution of the factory function.
-REVOKE ALL ON FUNCTION app.create_table_from_spec (jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.create_table_from_spec (jsonb, boolean) FROM PUBLIC;
 
 -- Factory can be invoked only by migrator + app_owner.
-GRANT EXECUTE ON FUNCTION app.create_table_from_spec (jsonb) TO app_owner;
+GRANT EXECUTE ON FUNCTION app.create_table_from_spec (jsonb, boolean) TO app_owner;
 
-GRANT EXECUTE ON FUNCTION app.create_table_from_spec (jsonb) TO app_migrator;
+GRANT EXECUTE ON FUNCTION app.create_table_from_spec (jsonb, boolean) TO app_migrator;
 
-GRANT EXECUTE ON FUNCTION app.create_table_from_spec (jsonb) TO table_creator;
+GRANT EXECUTE ON FUNCTION app.create_table_from_spec (jsonb, boolean) TO table_creator;
 
-ALTER FUNCTION app.create_table_from_spec (jsonb) OWNER TO app_owner;
+ALTER FUNCTION app.create_table_from_spec (jsonb, boolean) OWNER TO app_owner;
 
 -- Lock down apply_table_acl; factory/ACL are schema-scoped to app.
-REVOKE ALL ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[], boolean) FROM PUBLIC;
 
 -- Only allow the factory callers to adjust ACLs (per your requirement).
-GRANT EXECUTE ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[]) TO app_owner;
+GRANT EXECUTE ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[], boolean) TO app_owner;
 
-GRANT EXECUTE ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[]) TO app_migrator;
+GRANT EXECUTE ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[], boolean) TO app_migrator;
 
-GRANT EXECUTE ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[]) TO table_creator;
+GRANT EXECUTE ON FUNCTION app.apply_table_acl (TEXT, TEXT[], TEXT[], boolean) TO table_creator;
 
-ALTER FUNCTION app.apply_table_acl (text, text[], text[]) OWNER TO app_owner;
+ALTER FUNCTION app.apply_table_acl (text, text[], text[], boolean) OWNER TO app_owner;
 
 -- Lock down audit trigger function (trigger-only; not callable by PUBLIC).
 REVOKE ALL ON FUNCTION mae._audit_enforce_timestamps_and_immutables () FROM PUBLIC;

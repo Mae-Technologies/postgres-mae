@@ -28,29 +28,31 @@ BEGIN
     --               so it must be listed explicitly here.
     --
     -- Also allow when the effective_role itself is the migrator (compose restart cases).
-    IF (pg_has_role(invoker_role, 'app_migrator', 'member')
-        OR pg_has_role(invoker_role, 'db_migrator', 'member')
-        OR effective_role IN ('db_migrator', 'app_migrator'))
-       AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
-       AND EXISTS (
-        SELECT
-            1
-        FROM
-            pg_event_trigger_ddl_commands () c
-        WHERE
-        -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
-        c.object_identity LIKE 'test._sqlx_migrations%' OR c.object_identity LIKE 'app._sqlx_migrations%' OR c.object_identity LIKE '_sqlx_migrations') THEN
+    IF q ILIKE '%_sqlx_migrations%' THEN
         RETURN;
     END IF;
-    -- Allow PGTap tests DDL for all role memberships (robust: uses object identity)
-    IF TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE', 'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX') AND EXISTS (
-        SELECT
-            1
-        FROM
-            pg_event_trigger_ddl_commands () c
-        WHERE
-        -- SQLx bookkeeping table (schema-qualified or not depending on search_path)
-        c.object_identity LIKE '%_tresults__%' OR c.object_identity LIKE '%_tcache__%') THEN
+    -- Allow pgTAP test DDL (object identity — works inside PL/pgSQL too).
+    IF TG_TAG IN (
+        'CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE',
+        'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX', 'DROP TABLE'
+    ) AND EXISTS (
+        SELECT 1
+        FROM pg_event_trigger_ddl_commands () c
+        WHERE c.object_identity LIKE '%_tresults__%'
+           OR c.object_identity LIKE '%_tcache__%'
+    ) THEN
+        RETURN;
+    END IF;
+    -- SQLx bookkeeping DDL: migrator roles only (object identity for PL/pgSQL callers).
+    IF TG_TAG IN (
+        'CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX', 'CREATE TEMP TABLE',
+        'CREATE TEMP SEQUENCE', 'CREATE UNIQUE INDEX', 'DROP TABLE'
+    ) AND pg_has_role(invoker_role, 'app_migrator', 'member')
+    AND EXISTS (
+        SELECT 1
+        FROM pg_event_trigger_ddl_commands () c
+        WHERE c.object_identity LIKE '%_sqlx_migrations%'
+    ) THEN
         RETURN;
     END IF;
     -- NOTE: anything under this line is pretty well redundant. the create_table_function_acl() makes the app_owner the owner of the table when it is created, there is a permission denied from SQL before it ever gets to here.
