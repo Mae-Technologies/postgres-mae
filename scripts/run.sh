@@ -173,7 +173,8 @@ echo "${pg_pid}" > /tmp/pg.pid
 # -----------------------------------------------------------------------------
 # Wait for postgres readiness
 # -----------------------------------------------------------------------------
-deadline=$((SECONDS + 30))
+pg_ready_timeout="${PG_READY_TIMEOUT_SECS:-30}"
+deadline=$((SECONDS + pg_ready_timeout))
 until pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${SUPERUSER}" >/dev/null 2>&1; do
   if ((SECONDS >= deadline)); then
     log_err "Postgres did not become ready"
