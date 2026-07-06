@@ -205,10 +205,11 @@ BEGIN
   END IF;
 END
 \$\$;
-ALTER ROLE ${APP_USER} PASSWORD '${APP_USER_PWD}';
-ALTER ROLE ${MIGRATOR_USER} PASSWORD '${MIGRATOR_PWD}';
-ALTER ROLE ${TABLE_PROVISIONER_USER} PASSWORD '${TABLE_PROVISIONER_PWD}';
 "
+# psql -c batches DO blocks with trailing ALTER ROLE statements skip password updates.
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${APP_USER} PASSWORD '${APP_USER_PWD}';"
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${MIGRATOR_USER} PASSWORD '${MIGRATOR_PWD}';"
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${TABLE_PROVISIONER_USER} PASSWORD '${TABLE_PROVISIONER_PWD}';"
 log_ok "LOGIN roles ensured"
 
 # -----------------------------------------------------------------------------
