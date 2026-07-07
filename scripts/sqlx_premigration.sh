@@ -154,7 +154,9 @@ psql_local_super() {
   local db="$1"
   local sql="$2"
 
-  psql -U "${SUPERUSER}" -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" 1>/dev/null
+  # Must pass DB_PORT: staging runs one postgres per service on 5432–5436.
+  psql -h /var/run/postgresql -p "${DB_PORT}" -U "${SUPERUSER}" -d "${db}" \
+    -v ON_ERROR_STOP=1 -q -c "${sql}" 1>/dev/null
 }
 
 # Reconcile PVC-stored SCRAM passwords with runtime env (Vault → ESO → pod env).
