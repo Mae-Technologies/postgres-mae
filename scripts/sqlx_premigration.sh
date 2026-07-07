@@ -137,6 +137,10 @@ log_ok "Loaded env (runtime overrides preserved)"
 DATABASE_URL=postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}
 export DATABASE_URL
 
+sql_escape_literal() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
 psql_super_db() {
   local db="$1"
   local sql="$2"
@@ -145,6 +149,44 @@ psql_super_db() {
     -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
     1>/dev/null
 }
+
+psql_local_super() {
+  local db="$1"
+  local sql="$2"
+
+  psql -U "${SUPERUSER}" -d "${db}" -v ON_ERROR_STOP=1 -q -c "${sql}" 1>/dev/null
+}
+
+# Reconcile PVC-stored SCRAM passwords with runtime env (Vault → ESO → pod env).
+# Local unix-socket auth (trust/peer) works even when TCP password auth is stale.
+sync_role_passwords_local() {
+  case "${DB_HOST}" in
+  127.0.0.1 | localhost | "") ;;
+  *)
+    log_info "Skipping local password sync (remote DB_HOST=${DB_HOST})"
+    return 0
+    ;;
+  esac
+
+  local super_pwd app_pwd migrator_pwd provisioner_pwd
+  super_pwd="$(sql_escape_literal "${SUPERUSER_PWD}")"
+  app_pwd="$(sql_escape_literal "${APP_USER_PWD}")"
+  migrator_pwd="$(sql_escape_literal "${MIGRATOR_PWD}")"
+  provisioner_pwd="$(sql_escape_literal "${TABLE_PROVISIONER_PWD}")"
+
+  log_info "Syncing role passwords via local socket"
+  if ! psql_local_super postgres "ALTER ROLE ${SUPERUSER} PASSWORD '${super_pwd}';"; then
+    log_warn "Local socket superuser password sync failed; continuing with TCP auth"
+    return 0
+  fi
+
+  psql_local_super postgres "ALTER ROLE ${APP_USER} PASSWORD '${app_pwd}';" || true
+  psql_local_super postgres "ALTER ROLE ${MIGRATOR_USER} PASSWORD '${migrator_pwd}';" || true
+  psql_local_super postgres "ALTER ROLE ${TABLE_PROVISIONER_USER} PASSWORD '${provisioner_pwd}';" || true
+  log_ok "Role passwords reconciled via local socket"
+}
+
+sync_role_passwords_local
 
 # -----------------------------------------------------------------------------
 # 1) Ensure DB exists (as SUPERUSER)
@@ -207,9 +249,14 @@ END
 \$\$;
 "
 # psql -c batches DO blocks with trailing ALTER ROLE statements skip password updates.
-psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${APP_USER} PASSWORD '${APP_USER_PWD}';"
-psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${MIGRATOR_USER} PASSWORD '${MIGRATOR_PWD}';"
-psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${TABLE_PROVISIONER_USER} PASSWORD '${TABLE_PROVISIONER_PWD}';"
+super_pwd="$(sql_escape_literal "${SUPERUSER_PWD}")"
+app_pwd="$(sql_escape_literal "${APP_USER_PWD}")"
+migrator_pwd="$(sql_escape_literal "${MIGRATOR_PWD}")"
+provisioner_pwd="$(sql_escape_literal "${TABLE_PROVISIONER_PWD}")"
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${SUPERUSER} PASSWORD '${super_pwd}';"
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${APP_USER} PASSWORD '${app_pwd}';"
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${MIGRATOR_USER} PASSWORD '${migrator_pwd}';"
+psql_super_db "${APP_DB_NAME}" "ALTER ROLE ${TABLE_PROVISIONER_USER} PASSWORD '${provisioner_pwd}';"
 log_ok "LOGIN roles ensured"
 
 # -----------------------------------------------------------------------------
