@@ -33,8 +33,17 @@ if [[ ! -f "${ENV_PATH}" ]]; then
   exit 1
 fi
 
-# Preserve any runtime overrides before sourcing
-_ep_vars=(APP_ENV DB_HOST DB_PORT APP_DB_NAME SUPERUSER SUPERUSER_PWD APP_DB_NAME)
+# Preserve any runtime overrides before sourcing.
+# Must match run.sh / sqlx_premigration.sh: Kubernetes (Vault → ESO) injects
+# role passwords via env; .env is local fallback only.
+_ep_vars=(
+  APP_ENV
+  DB_HOST DB_PORT APP_DB_NAME
+  SUPERUSER SUPERUSER_PWD
+  MIGRATOR_USER MIGRATOR_PWD
+  APP_USER APP_USER_PWD
+  TABLE_PROVISIONER_USER TABLE_PROVISIONER_PWD
+)
 declare -A _ep_saved=()
 for _v in "${_ep_vars[@]}"; do
   if [[ -n "${!_v+x}" ]]; then
